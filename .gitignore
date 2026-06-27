@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment variables
+.env
+client/.env
+server/.env
+data-service/.env
+
+# Python
+data-service/venv/
+__pycache__/
+*.pyc
+
+# Build output
+client/build/
