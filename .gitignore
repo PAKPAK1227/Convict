@@ -16,3 +16,4 @@ __pycache__/
 
 # Build output
 client/build/
+.DS_Store
