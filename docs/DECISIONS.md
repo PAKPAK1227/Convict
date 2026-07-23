@@ -139,14 +139,35 @@ cards, shared `Navbar`, centralized auth `context`, and responsive grid
 
 ---
 
+## Account deletion (self-service, permanent)
+
+Users can permanently delete their account + all data from **Account → Danger
+Zone** (`/account`, linked in the Navbar). Typing `DELETE` arms the button,
+which calls `supabase.rpc('delete_user')`, then signs out and returns to the
+landing page.
+
+Deleting the actual `auth.users` account needs privileges the browser must not
+have (service-role). Instead of putting that key in the client, a
+`SECURITY DEFINER` Postgres function does the work server-side; `auth.uid()`
+inside it guarantees a caller can only ever delete **themselves**.
+
+### ⚠️ One-time deploy step (required for the feature to work)
+Paste **`supabase/migrations/20260723_delete_user.sql`** into the Supabase SQL
+editor and run it once (as the privileged editor role, so the function owner can
+delete from the `auth` schema). Until then the button will error with a helpful
+"deploy the migration" message. The function deletes the user's `metrics`, then
+`theses`, then their `auth.users` row (which cascades to their sessions).
+
+---
+
 ## Tests
 
 - `data-service/tests/` — 21 pytest cases over the pure evaluation logic
   (`evaluate_metric`, `derive_thesis_status`, `normalize_metric_name`,
   `map_fundamentals`). Run: `./venv/bin/python -m pytest tests/` (dev deps:
   `pip install -r requirements-dev.txt`).
-- `client/src/lib/__tests__/` — 12 Jest cases over validation + metric helpers.
-  Run: `CI=true npm test`.
+- `client/src/lib/__tests__/` — 14 Jest cases over validation + metric helpers
+  (incl. ticker, credential, and delete-confirmation logic). Run: `CI=true npm test`.
 - A Login component render test was omitted: CRA 5's frozen Jest config can't
   resolve react-router-dom v7's ESM `exports` map. The extracted pure logic it
   would have exercised is covered directly.

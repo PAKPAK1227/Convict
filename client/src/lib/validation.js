@@ -22,3 +22,15 @@ export function credentialError(email, password) {
   }
   return '';
 }
+
+// The user must type this exactly to arm the permanent-delete button.
+export const DELETE_CONFIRM_PHRASE = 'DELETE';
+
+/**
+ * True only when the typed confirmation exactly matches the phrase (after
+ * trimming surrounding whitespace). Case-sensitive on purpose — deleting an
+ * account is irreversible, so we want a deliberate, exact match.
+ */
+export function isDeleteConfirmed(input) {
+  return (input || '').trim() === DELETE_CONFIRM_PHRASE;
+}

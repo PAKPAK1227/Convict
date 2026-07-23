@@ -29,6 +29,12 @@ function Navbar() {
             {session.user?.email}
           </span>
           <button
+            onClick={() => navigate('/account')}
+            className="px-3 py-2 text-sm text-gray-400 hover:text-white transition"
+          >
+            Account
+          </button>
+          <button
             onClick={handleLogout}
             className="px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition"
           >
