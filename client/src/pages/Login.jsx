@@ -9,7 +9,7 @@ function Login() {
     const [password, setPassword] = useState("");
 
 	const handleSignUp = async () => {
-		const { data, error } = await supabase.auth.signUp({
+		const { error } = await supabase.auth.signUp({
 		email: email,
 		password: password,
 		});
@@ -22,7 +22,7 @@ function Login() {
 	};
 
 	const handleLogIn = async () => {
-		const { data, error } = await supabase.auth.signInWithPassword({
+		const { error } = await supabase.auth.signInWithPassword({
 		email: email,
 		password: password,
 		});
