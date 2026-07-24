@@ -5,7 +5,7 @@ import { scoreTier } from '../lib/score';
  * Convict Score dial (§5.4) — a radial gauge with the score in the centre and a
  * tier label. Colour follows the tier. Pure SVG, no dependencies.
  */
-function ConvictScore({ score }) {
+function ConvictScore({ score, resolvedCount = 0 }) {
   const tier = scoreTier(score);
   const r = 54;
   const C = 2 * Math.PI * r;
@@ -41,7 +41,9 @@ function ConvictScore({ score }) {
         <span className="eyebrow">Convict Score</span>
         <div className={`font-serif text-2xl leading-tight ${tier.cls}`}>{tier.label}</div>
         <p className="text-sm text-ink-2 mt-1 max-w-xs">
-          Starts at 50 · climbs as your calls land, sinks when they don't.
+          {resolvedCount > 0
+            ? `Locked in from ${resolvedCount} resolved call${resolvedCount === 1 ? '' : 's'} — it moves only when a prediction hits its deadline.`
+            : 'Starts at 50. It shifts only when a prediction reaches its deadline — no resolved calls yet.'}
         </p>
       </div>
     </div>

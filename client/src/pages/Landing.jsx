@@ -7,9 +7,10 @@ import CountUp from '../components/CountUp';
 import HeroDemo from '../components/HeroDemo';
 
 const STEPS = [
-  { n: '01', t: 'Write the thesis', d: 'State what you believe and the metric targets that would prove it.' },
+  { n: '01', t: 'Write the thesis', d: 'State what you believe, set a deadline, and pick the metric targets that would prove it.' },
   { n: '02', t: 'Set the targets', d: 'P/E, revenue growth, margin — the numbers your conviction rests on.' },
-  { n: '03', t: 'Get the verdict', d: 'Daily checks against live data resolve it: On Track, Watch, or Broken.' },
+  { n: '03', t: 'Get the verdict', d: 'Daily checks against live data grade it: On Track, Watch, or Broken.' },
+  { n: '04', t: 'Build your Score', d: 'At the deadline the verdict locks and moves your Convict Score (0–100). It shifts only on resolution — a high score means a real track record.' },
 ];
 
 const MICRO_STATS = [
@@ -120,7 +121,7 @@ function Landing() {
       <section className="border-t border-line">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16">
           <span className="eyebrow">How it works</span>
-          <div className="mt-6 grid sm:grid-cols-3 gap-px bg-line rounded-2xl overflow-hidden border border-line">
+          <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-line rounded-2xl overflow-hidden border border-line">
             {STEPS.map((step) => (
               <div key={step.n} className="bg-surface p-6">
                 <span className="font-mono text-sm text-accent">{step.n}</span>

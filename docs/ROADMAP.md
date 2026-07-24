@@ -78,6 +78,19 @@ above is complete.
 - [ ] Feed of followed users' public theses
 - [ ] Leaderboard
 - [ ] Moderation considerations before anything is publicly visible
+- [ ] **Landing explainer for social features** — the "How it works" section now
+      has a 4th card explaining the Convict Score; add a matching explanation of
+      the social layer (profiles, following, leaderboard) once it ships.
+
+**Convict Score — how it's calculated (shipped):** persisted per-user in
+`profiles.convict_score`, 0–100, starts at 50. It changes **only when a thesis
+resolves at its deadline** (one scoring event, applied once via `theses.resolved`).
+Each event: `delta = 8 · conviction_weight · (outcome − 0.5)`, where outcome is
+On Track=1 / Watch=0.5 / Broken=0 and conviction_weight is High=1.25 / Med=1.0 /
+Low=0.75, then damped toward 0 near the 0/100 bounds so extremes require sustained
+accuracy. Written only by the evaluator (service key). **Deleting a thesis never
+changes the score** (anti-gaming — you can't erase a loss). See
+`data-service/evaluate_theses.py` (`score_delta`, `apply_resolution`).
 
 **Prerequisite for the Convict Score:** create and populate `status_history`
 (SQL migration already written in `DECISIONS.md` §3).

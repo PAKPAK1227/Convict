@@ -6,10 +6,13 @@ import StatusBadge from '../components/StatusBadge';
 import MetricBar from '../components/MetricBar';
 import ConvictScore from '../components/ConvictScore';
 import { freshnessRelative } from '../lib/format';
-import { convictScore } from '../lib/score';
-import { deadlineStatus } from '../lib/deadline';
+import { deadlineStatus, daysUntil } from '../lib/deadline';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
+
+// Resolved theses drop off the dashboard after this many days to prevent
+// overload; they remain in the DB for the future profile/history view.
+const ARCHIVE_AFTER_DAYS = 7;
 
 // Conviction rendered as visual weight (§5.3): filled pips, High=3 … Low=1.
 function ConvictionPips({ level }) {
@@ -37,6 +40,8 @@ function Dashboard() {
     const [theses, setTheses] = useState([]);
     const [metricsByThesis, setMetricsByThesis] = useState({});
     const [deletingId, setDeletingId] = useState(null);
+    const [score, setScore] = useState(50);
+    const [resolvedCount, setResolvedCount] = useState(0);
 
     useEffect(() => {
         let mounted = true;
@@ -75,9 +80,20 @@ function Dashboard() {
                 }
             }
 
+            // Persisted Convict Score from the user's profile (RLS scopes the
+            // select to their own row). Absent row / un-migrated DB -> default 50.
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('convict_score, resolved_count')
+                .maybeSingle();
+
             if (mounted) {
                 setTheses(rows);
                 setMetricsByThesis(grouped);
+                if (profile) {
+                    setScore(Math.round(profile.convict_score));
+                    setResolvedCount(profile.resolved_count ?? 0);
+                }
                 setLoading(false);
             }
         };
@@ -112,8 +128,15 @@ function Dashboard() {
         toast.success(`Deleted your thesis on ${thesis.ticker}.`);
     };
 
-    // Presentational aggregation over the already-loaded theses (no backend).
-    const summary = theses.reduce(
+    // Active theses only: resolved ones fall off after a week (kept in the DB
+    // for the future profile/history view).
+    const visibleTheses = theses.filter((t) => {
+        const d = daysUntil(t.target_date);
+        return d === null || d >= -ARCHIVE_AFTER_DAYS;
+    });
+
+    // Presentational aggregation over the visible theses (no backend).
+    const summary = visibleTheses.reduce(
         (acc, t) => {
             acc.total += 1;
             const s = t.status || 'Pending';
@@ -125,8 +148,6 @@ function Dashboard() {
         },
         { total: 0, ok: 0, watch: 0, broken: 0, pending: 0 }
     );
-
-    const score = convictScore(theses);
 
     const summaryTiles = [
         { label: 'Theses', value: summary.total, accent: 'text-ink', glyph: null },
@@ -153,14 +174,14 @@ function Dashboard() {
                 </div>
 
                 {/* Convict Score */}
-                {!loading && theses.length > 0 && (
+                {!loading && (
                     <div className="bg-surface border border-line rounded-2xl shadow-card p-6 mb-6 animate-fade-up">
-                        <ConvictScore score={score} />
+                        <ConvictScore score={score} resolvedCount={resolvedCount} />
                     </div>
                 )}
 
                 {/* Portfolio summary */}
-                {!loading && theses.length > 0 && (
+                {!loading && visibleTheses.length > 0 && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-8 animate-fade-up">
                         {summaryTiles.map((tile) => (
                             <div key={tile.label} className="bg-surface border border-line rounded-2xl p-4 shadow-card">
@@ -191,7 +212,7 @@ function Dashboard() {
                             </div>
                         ))}
                     </div>
-                ) : theses.length === 0 ? (
+                ) : visibleTheses.length === 0 ? (
                     // Empty state (§4)
                     <div className="ring-gradient border border-line bg-surface rounded-2xl p-12 text-center shadow-card animate-fade-up">
                         <div className="mx-auto mb-5 grid place-items-center h-14 w-14 rounded-2xl bg-accent/12 text-accent text-2xl">◇</div>
@@ -208,7 +229,7 @@ function Dashboard() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {theses.map((thesis) => {
+                        {visibleTheses.map((thesis) => {
                             const metrics = metricsByThesis[thesis.id] || [];
                             const updated = freshnessRelative(thesis);
                             const dl = deadlineStatus(thesis.target_date);
