@@ -1,7 +1,9 @@
 # Convict — Design & Visual Direction
 
-A reference for the future UI/design revolution. Nothing here is wired into the
-code yet — it's a menu of cohesive, accessible options to pull from.
+A reference for the UI/design system. **Implemented as of 2026-07-23:** the app
+now ships **Option A ("Terminal", dark)** as the default with an **Option C
+("Editorial", light)** toggle, wired via CSS-variable tokens (see §3). This file
+remains the source of truth for the palette values and the remaining feature ideas.
 
 Convict is a **conviction-tracking / investment product**, so the design should
 read as: trustworthy, data-dense but calm, and a little opinionated. The single

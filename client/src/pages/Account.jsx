@@ -40,37 +40,48 @@ function Account() {
     navigate('/', { replace: true });
   };
 
+  const email = session?.user?.email || '';
+  const initial = email ? email[0].toUpperCase() : '?';
+
   return (
-    <div className="min-h-screen bg-gray-950">
+    <div className="min-h-screen bg-bg">
       <Navbar />
-      <div className="max-w-2xl mx-auto p-6 sm:p-8">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 animate-fade-up">
         <button
           onClick={() => navigate('/dashboard')}
-          className="text-gray-400 hover:text-white mb-6"
+          className="flex w-fit items-center gap-1 text-sm text-ink-2 hover:text-ink mb-6 transition"
         >
           ← Back to Dashboard
         </button>
 
-        <h1 className="text-3xl font-bold text-white mb-6">Account</h1>
+        <span className="eyebrow">Settings</span>
+        <h1 className="mt-1.5 font-serif text-3xl sm:text-4xl font-medium text-ink tracking-[-0.01em] mb-6">Account</h1>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
-          <h2 className="text-white font-semibold mb-1">Signed in as</h2>
-          <p className="text-gray-400 text-sm">{session?.user?.email}</p>
+        <div className="bg-surface border border-line rounded-2xl shadow-card p-6 mb-6 flex items-center gap-4">
+          <span className="grid place-items-center h-12 w-12 rounded-full bg-accent/15 text-accent text-lg font-bold">
+            {initial}
+          </span>
+          <div>
+            <h2 className="eyebrow mb-0.5">Signed in as</h2>
+            <p className="text-ink font-medium">{email}</p>
+          </div>
         </div>
 
         {/* Danger Zone */}
-        <div className="bg-gray-900 border border-red-500/40 rounded-2xl p-6">
-          <h2 className="text-red-400 font-semibold mb-2">Danger Zone</h2>
-          <p className="text-gray-300 text-sm mb-1">
+        <div className="bg-surface border border-status-broken/40 rounded-2xl shadow-card p-6">
+          <h2 className="text-status-broken font-semibold mb-2 flex items-center gap-2">
+            <span aria-hidden="true">⚠</span> Danger Zone
+          </h2>
+          <p className="text-ink text-sm mb-1">
             Permanently delete your account and all of your data.
           </p>
-          <p className="text-gray-500 text-sm mb-4">
+          <p className="text-ink-2 text-sm mb-4">
             This removes every thesis and metric you've created and deletes your
-            login. <span className="text-gray-300">This cannot be undone.</span>
+            login. <span className="text-ink font-medium">This cannot be undone.</span>
           </p>
 
-          <label className="block text-sm text-gray-400 mb-2">
-            Type <span className="font-mono text-gray-200">{DELETE_CONFIRM_PHRASE}</span> to confirm
+          <label className="block text-sm text-ink-2 mb-2">
+            Type <span className="font-mono text-ink">{DELETE_CONFIRM_PHRASE}</span> to confirm
           </label>
           <input
             type="text"
@@ -78,15 +89,15 @@ function Account() {
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder={DELETE_CONFIRM_PHRASE}
             autoComplete="off"
-            className="w-full px-3 py-2 mb-3 bg-gray-800 text-white text-sm rounded-lg outline-none border border-gray-700 focus:border-red-500/60"
+            className="w-full rounded-xl bg-surface-2 border border-line px-3 py-2.5 mb-3 text-ink text-sm placeholder:text-ink-3 focus:outline-none focus:border-status-broken/60 focus:ring-2 focus:ring-status-broken/25 transition"
           />
 
-          {error && <p className="text-sm text-red-400 mb-3" role="alert">{error}</p>}
+          {error && <p className="text-sm text-status-broken mb-3" role="alert">{error}</p>}
 
           <button
             onClick={handleDeleteAccount}
             disabled={!armed || deleting}
-            className="w-full py-3 bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-lg transition"
+            className="w-full py-3 bg-status-broken hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition"
           >
             {deleting ? 'Deleting account...' : 'Permanently delete my account'}
           </button>

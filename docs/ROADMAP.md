@@ -46,6 +46,25 @@ nothing gets lost.
 
 ---
 
+## §8b — Evaluation logic enhancements  *(deferred)*
+
+The nightly evaluator (`data-service/evaluate_theses.py`) currently grades every
+metric equally against a single global `BROKEN_THRESHOLD = 0.25` (miss ≤ 25% =
+Watch, > 25% = Broken), then rolls a thesis up "worst-wins".
+
+- [ ] **Per-metric weighting** — let some metrics count more toward the thesis
+      verdict than others (currently all equal).
+- [ ] **Conviction-aware grading** — factor the thesis's conviction level
+      (High/Medium/Low) into how harshly a miss is graded, or into the Convict
+      Score impact (a missed High-conviction call should sting more).
+- [ ] **Configurable / per-metric thresholds** — the 25% Broken cutoff is one
+      constant for all metrics; some metrics may warrant tighter/looser bands.
+
+These are additive tuning knobs; none change the existing on-track/watch/broken
+model, and they pair naturally with the Convict Score (§9).
+
+---
+
 ## §9 — Phase 2: Social layer  *(deferred by design)*
 
 Queued deliberately for after Phase 1 is polished. Not to be started before the

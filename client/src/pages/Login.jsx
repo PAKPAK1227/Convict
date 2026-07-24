@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from '../supabaseClient';
 import { MIN_PASSWORD_LENGTH, credentialError } from '../lib/validation';
+import Brand from '../components/Brand';
+import ThemeToggle from '../components/ThemeToggle';
 
 function Login() {
     const navigate = useNavigate();
@@ -100,73 +102,100 @@ function Login() {
 
     const isSignup = mode === "signup";
 
+    const inputClass =
+        "w-full rounded-xl bg-surface-2 border border-line px-4 py-3 text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/30 transition";
+
     return (
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 w-full max-w-sm">
-                <h1 className="text-2xl font-bold text-white mb-6 text-center">
-                    {isSignup ? "Create your account" : "Log in to Convict"}
-                </h1>
+        <div className="relative min-h-screen bg-bg flex flex-col">
+            <div className="absolute inset-0 bg-grid bg-grid-fade pointer-events-none" aria-hidden="true" />
+            <header className="relative z-10 mx-auto w-full max-w-6xl flex items-center justify-between px-4 sm:px-6 h-16">
+                <button onClick={() => navigate('/')} aria-label="Convict home" className="rounded-lg">
+                    <Brand />
+                </button>
+                <ThemeToggle />
+            </header>
 
-                {/* View toggle (§2) */}
-                <div className="flex mb-6 bg-gray-800 rounded-lg p-1">
-                    <button
-                        type="button"
-                        onClick={() => switchMode("login")}
-                        className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
-                            !isSignup ? "bg-gray-700 text-white" : "text-gray-400"
-                        }`}
-                    >
-                        Log in
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => switchMode("signup")}
-                        className={`flex-1 py-2 text-sm font-semibold rounded-md transition ${
-                            isSignup ? "bg-gray-700 text-white" : "text-gray-400"
-                        }`}
-                    >
-                        Sign up
-                    </button>
+            <div className="relative z-10 flex-1 flex items-center justify-center px-4 pb-16">
+                <div className="w-full max-w-sm animate-fade-up">
+                    <div className="ring-gradient bg-surface border border-line rounded-2xl shadow-card-hover p-8">
+                        <h1 className="font-serif text-3xl font-medium text-ink mb-1 text-center tracking-[-0.01em]">
+                            {isSignup ? "Create account" : "Welcome back"}
+                        </h1>
+                        <p className="text-sm text-ink-2 text-center mb-6">
+                            {isSignup
+                                ? "Start tracking your convictions."
+                                : "Log in to your Convict dashboard."}
+                        </p>
+
+                        {/* View toggle (§2) */}
+                        <div className="flex mb-6 bg-surface-2 rounded-xl p-1">
+                            <button
+                                type="button"
+                                onClick={() => switchMode("login")}
+                                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition ${
+                                    !isSignup ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"
+                                }`}
+                            >
+                                Log in
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => switchMode("signup")}
+                                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition ${
+                                    isSignup ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"
+                                }`}
+                            >
+                                Sign up
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSubmit}>
+                            <label className="block text-xs font-medium text-ink-2 mb-1.5">Email</label>
+                            <input
+                                type="email"
+                                placeholder="you@example.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                autoComplete="email"
+                                className={`${inputClass} mb-4`}
+                            />
+
+                            <label className="block text-xs font-medium text-ink-2 mb-1.5">Password</label>
+                            <input
+                                type="password"
+                                placeholder="••••••••"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                autoComplete={isSignup ? "new-password" : "current-password"}
+                                className={`${inputClass} mb-1.5`}
+                            />
+                            <p className="text-xs text-ink-3 mb-3">
+                                At least {MIN_PASSWORD_LENGTH} characters.
+                            </p>
+
+                            {error && (
+                                <p className="text-sm text-status-broken mb-3 flex items-start gap-1.5" role="alert">
+                                    <span aria-hidden="true">⚠</span>{error}
+                                </p>
+                            )}
+                            {message && (
+                                <p className="text-sm text-status-ok mb-3 flex items-start gap-1.5" role="status">
+                                    <span aria-hidden="true">✓</span>{message}
+                                </p>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={submitting}
+                                className="w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-60 disabled:cursor-not-allowed text-brand-fg font-semibold rounded-xl shadow-glow transition mt-2"
+                            >
+                                {submitting
+                                    ? (isSignup ? "Signing up..." : "Logging in...")
+                                    : (isSignup ? "Sign up" : "Log in")}
+                            </button>
+                        </form>
+                    </div>
                 </div>
-
-                <form onSubmit={handleSubmit}>
-                    <input
-                        type="email"
-                        placeholder="Email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        autoComplete="email"
-                        className="w-full px-4 py-3 mb-4 bg-gray-800 text-white rounded-lg outline-none"
-                    />
-                    <input
-                        type="password"
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        autoComplete={isSignup ? "new-password" : "current-password"}
-                        className="w-full px-4 py-3 mb-1 bg-gray-800 text-white rounded-lg outline-none"
-                    />
-                    <p className="text-xs text-gray-500 mb-3">
-                        At least {MIN_PASSWORD_LENGTH} characters.
-                    </p>
-
-                    {error && (
-                        <p className="text-sm text-red-400 mb-3" role="alert">{error}</p>
-                    )}
-                    {message && (
-                        <p className="text-sm text-green-400 mb-3" role="status">{message}</p>
-                    )}
-
-                    <button
-                        type="submit"
-                        disabled={submitting}
-                        className="w-full py-3 bg-green-500 hover:bg-green-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-bold rounded-lg transition mt-2"
-                    >
-                        {submitting
-                            ? (isSignup ? "Signing up..." : "Logging in...")
-                            : (isSignup ? "Sign up" : "Log in")}
-                    </button>
-                </form>
             </div>
         </div>
     );

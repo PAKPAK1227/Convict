@@ -13,6 +13,14 @@ export function metricLabel(name) {
   return METRIC_LABELS[name] || name;
 }
 
+// Metrics where a *lower* value beats the target (mirrors the evaluator's
+// LOWER_IS_BETTER). Used to show the ≤/≥ goal direction next to a target.
+export const LOWER_IS_BETTER = new Set(['pe_ratio']);
+
+export function targetComparator(name) {
+  return LOWER_IS_BETTER.has(name) ? '≤' : '≥';
+}
+
 export function getStatusColor(status) {
   if (status === 'On Track') return 'bg-green-500/10 text-green-400';
   if (status === 'Watch') return 'bg-yellow-500/10 text-yellow-400';

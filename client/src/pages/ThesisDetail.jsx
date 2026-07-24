@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import Navbar from '../components/Navbar';
-import { METRIC_OPTIONS, metricLabel } from '../lib/metrics';
+import StatusBadge from '../components/StatusBadge';
+import Progress from '../components/Progress';
+import Select from '../components/Select';
+import { METRIC_OPTIONS, metricLabel, targetComparator } from '../lib/metrics';
+import { formatNumber } from '../lib/format';
+import { deadlineStatus } from '../lib/deadline';
+import { useToast } from '../context/ToastContext';
+import { useConfirm } from '../context/ConfirmContext';
 
 // §3: the evaluator only understands the canonical metric names in METRIC_OPTIONS.
 // A free-text field previously let users type anything, which the evaluator then
@@ -10,9 +17,14 @@ import { METRIC_OPTIONS, metricLabel } from '../lib/metrics';
 
 const CONVICTION_OPTIONS = ['High', 'Medium', 'Low'];
 
+const inputClass =
+  'rounded-lg bg-surface-2 border border-line px-3 py-2 text-ink text-sm placeholder:text-ink-3 focus:outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/30 transition';
+
 function ThesisDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const [thesis, setThesis] = useState(null);
   const [metrics, setMetrics] = useState([]);
@@ -109,7 +121,7 @@ function ThesisDetail() {
 
   const saveEditMetric = async (metric) => {
     if (editingTarget === '' || Number.isNaN(Number(editingTarget))) {
-      window.alert('Enter a numeric target value.');
+      toast.error('Enter a numeric target value.');
       return;
     }
     const { data, error } = await supabase
@@ -120,23 +132,30 @@ function ThesisDetail() {
       .single();
 
     if (error) {
-      window.alert(error.message);
+      toast.error(error.message);
       return;
     }
     setMetrics((prev) => prev.map((m) => (m.id === metric.id ? data : m)));
     setEditingMetricId(null);
     setEditingTarget('');
+    toast.success('Target updated.');
   };
 
   const deleteMetric = async (metric) => {
-    const ok = window.confirm(`Remove ${metricLabel(metric.metric_name)} from this thesis?`);
+    const ok = await confirm({
+      title: `Remove ${metricLabel(metric.metric_name)}?`,
+      body: 'This metric will be removed from this thesis.',
+      confirmLabel: 'Remove',
+      danger: true,
+    });
     if (!ok) return;
     const { error } = await supabase.from('metrics').delete().eq('id', metric.id);
     if (error) {
-      window.alert(error.message);
+      toast.error(error.message);
       return;
     }
     setMetrics((prev) => prev.filter((m) => m.id !== metric.id));
+    toast.success(`Removed ${metricLabel(metric.metric_name)}.`);
   };
 
   const startEditThesis = () => {
@@ -161,31 +180,39 @@ function ThesisDetail() {
     setSavingThesis(false);
 
     if (error) {
-      window.alert(error.message);
+      toast.error(error.message);
       return;
     }
     setThesis(data);
     setEditingThesis(false);
+    toast.success('Thesis updated.');
   };
 
   const deleteThesis = async () => {
-    const ok = window.confirm(`Delete your thesis on ${thesis.ticker}? This cannot be undone.`);
+    const ok = await confirm({
+      title: `Delete ${thesis.ticker}?`,
+      body: 'This permanently removes the thesis and all of its metrics. This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
     if (!ok) return;
     await supabase.from('metrics').delete().eq('thesis_id', id);
     const { error } = await supabase.from('theses').delete().eq('id', id);
     if (error) {
-      window.alert(error.message);
+      toast.error(error.message);
       return;
     }
+    toast.success(`Deleted your thesis on ${thesis.ticker}.`);
     navigate('/dashboard');
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950">
+      <div className="min-h-screen bg-bg">
         <Navbar />
-        <div className="flex items-center justify-center py-24">
-          <p className="text-white">Loading...</p>
+        <div className="mx-auto max-w-2xl px-4 sm:px-6 py-8">
+          <div className="h-8 w-40 rounded bg-surface-2 mb-6" />
+          <div className="bg-surface border border-line rounded-2xl p-6 h-40 shadow-card" />
         </div>
       </div>
     );
@@ -193,11 +220,11 @@ function ThesisDetail() {
 
   if (!thesis) {
     return (
-      <div className="min-h-screen bg-gray-950">
+      <div className="min-h-screen bg-bg">
         <Navbar />
-        <div className="max-w-2xl mx-auto p-8">
-          <p className="text-gray-400">Thesis not found.</p>
-          <button onClick={() => navigate('/dashboard')} className="mt-4 text-green-400 hover:text-green-300">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+          <p className="text-ink-2">Thesis not found.</p>
+          <button onClick={() => navigate('/dashboard')} className="mt-4 text-accent hover:text-accent-hover">
             ← Back to Dashboard
           </button>
         </div>
@@ -206,31 +233,49 @@ function ThesisDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950">
+    <div className="min-h-screen bg-bg">
       <Navbar />
-      <div className="max-w-2xl mx-auto p-6 sm:p-8">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 animate-fade-up">
         <button
           onClick={() => navigate('/dashboard')}
-          className="text-gray-400 hover:text-white mb-6"
+          className="inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink mb-6 transition"
         >
           ← Back to Dashboard
         </button>
 
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-1">{thesis.ticker}</h1>
-            <p className="text-gray-400">{thesis.company_name}</p>
+        <div className="flex items-start justify-between gap-4 mb-6">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="font-mono text-3xl font-semibold text-ink tracking-tight">{thesis.ticker}</h1>
+              <StatusBadge status={thesis.status} size="lg" />
+            </div>
+            <p className="text-ink-2 mt-1">{thesis.company_name}</p>
+            {(() => {
+              const dl = deadlineStatus(thesis.target_date);
+              if (!dl) return null;
+              return (
+                <p
+                  className={`mt-2 inline-flex items-center gap-1.5 text-xs font-mono ${
+                    dl.resolved ? 'text-ink-2' : dl.dueToday ? 'text-status-watch' : 'text-ink-3'
+                  }`}
+                  title={dl.resolved ? 'Past its deadline — the verdict is final.' : 'The verdict locks on the deadline.'}
+                >
+                  <span aria-hidden="true">{dl.resolved ? '🔒' : '◷'}</span>
+                  {dl.label}{dl.resolved ? ' · verdict locked' : ''}
+                </p>
+              );
+            })()}
           </div>
-          <div className="flex gap-3 text-sm">
+          <div className="flex gap-2 text-sm shrink-0">
             {!editingThesis && (
-              <button onClick={startEditThesis} className="text-gray-400 hover:text-white">Edit</button>
+              <button onClick={startEditThesis} className="px-3 py-1.5 rounded-lg text-ink-2 hover:text-ink hover:bg-surface-2 transition">Edit</button>
             )}
-            <button onClick={deleteThesis} className="text-gray-400 hover:text-red-400">Delete</button>
+            <button onClick={deleteThesis} className="px-3 py-1.5 rounded-lg text-ink-2 hover:text-status-broken hover:bg-surface-2 transition">Delete</button>
           </div>
         </div>
 
         {/* Thesis body — view or edit (§4) */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
+        <div className="bg-surface border border-line rounded-2xl shadow-card p-6 mb-6">
           {editingThesis ? (
             <div className="space-y-3">
               <input
@@ -238,35 +283,31 @@ function ThesisDetail() {
                 value={draftCompany}
                 onChange={(e) => setDraftCompany(e.target.value)}
                 placeholder="Company name"
-                className="w-full px-3 py-2 bg-gray-800 text-white text-sm rounded-lg outline-none"
+                className={`${inputClass} w-full`}
               />
               <textarea
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
                 rows={5}
                 placeholder="Write your thesis..."
-                className="w-full px-3 py-2 bg-gray-800 text-white text-sm rounded-lg outline-none"
+                className={`${inputClass} w-full resize-y`}
               />
-              <select
+              <Select
                 value={draftConviction}
-                onChange={(e) => setDraftConviction(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-800 text-white text-sm rounded-lg outline-none"
-              >
-                {CONVICTION_OPTIONS.map((c) => (
-                  <option key={c} value={c}>{c} conviction</option>
-                ))}
-              </select>
-              <div className="flex gap-3">
+                onChange={setDraftConviction}
+                options={CONVICTION_OPTIONS.map((c) => ({ value: c, label: `${c} conviction` }))}
+              />
+              <div className="flex gap-3 pt-1">
                 <button
                   onClick={saveThesis}
                   disabled={savingThesis}
-                  className="px-4 py-2 bg-green-500 hover:bg-green-400 disabled:opacity-60 text-black text-sm font-bold rounded-lg transition"
+                  className="px-4 py-2 bg-brand hover:bg-brand-hover disabled:opacity-60 text-brand-fg text-sm font-semibold rounded-lg transition"
                 >
                   {savingThesis ? 'Saving...' : 'Save'}
                 </button>
                 <button
                   onClick={() => setEditingThesis(false)}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-lg transition"
+                  className="px-4 py-2 border border-line text-ink text-sm rounded-lg hover:bg-surface-2 transition"
                 >
                   Cancel
                 </button>
@@ -274,77 +315,103 @@ function ThesisDetail() {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-white font-semibold">Your Thesis</h2>
-                <span className="text-xs text-gray-500">Conviction: {thesis.conviction_level}</span>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="eyebrow">Your Thesis</h2>
+                <span className="eyebrow">Conviction · <span className="text-ink-2">{thesis.conviction_level}</span></span>
               </div>
-              <p className="text-gray-300 whitespace-pre-wrap">{thesis.thesis_text}</p>
+              <p className="font-serif text-lg text-ink whitespace-pre-wrap leading-relaxed">{thesis.thesis_text}</p>
             </>
           )}
         </div>
 
         {/* Metrics */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-          <h2 className="text-white font-semibold mb-4">Metrics</h2>
+        <div className="bg-surface border border-line rounded-2xl shadow-card p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="eyebrow">Metrics</h2>
+            <span className="text-[11px] text-ink-3">Refreshed daily from live market data</span>
+          </div>
+          <p className="text-xs text-ink-3 mb-4">
+            <span className="text-status-ok">On Track</span> = target met · <span className="text-status-watch">Watch</span> = within 25% · <span className="text-status-broken">Broken</span> = beyond · thesis takes its worst metric. <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
+          </p>
 
           {metrics.length === 0 ? (
-            <p className="text-gray-500 text-sm">No metrics added yet.</p>
+            <p className="text-ink-3 text-sm">No metrics added yet.</p>
           ) : (
-            metrics.map((metric) => (
-              <div key={metric.id} className="flex items-center justify-between text-sm text-gray-300 mb-3">
-                <span className="font-medium">{metricLabel(metric.metric_name)}</span>
+            <div className="space-y-3">
+              {metrics.map((metric) => {
+                const tracked =
+                  metric.current_value != null &&
+                  metric.target_value != null &&
+                  Number(metric.target_value) !== 0 &&
+                  !Number.isNaN(Number(metric.current_value));
+                const pct = tracked
+                  ? Math.max(0, Math.min(100, (Number(metric.current_value) / Number(metric.target_value)) * 100))
+                  : 0;
+                return (
+                  <div key={metric.id} className="rounded-xl border border-line bg-surface-2/40 p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-mono text-xs uppercase tracking-wide text-ink-2">{metricLabel(metric.metric_name)}</span>
 
-                {editingMetricId === metric.id ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={editingTarget}
-                      onChange={(e) => setEditingTarget(e.target.value)}
-                      className="w-24 px-2 py-1 bg-gray-800 text-white text-sm rounded outline-none"
-                    />
-                    <button onClick={() => saveEditMetric(metric)} className="text-green-400 hover:text-green-300">Save</button>
-                    <button onClick={() => setEditingMetricId(null)} className="text-gray-500 hover:text-white">Cancel</button>
+                      {editingMetricId === metric.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={editingTarget}
+                            onChange={(e) => setEditingTarget(e.target.value)}
+                            className={`${inputClass} w-24`}
+                          />
+                          <button onClick={() => saveEditMetric(metric)} className="text-sm font-semibold text-accent hover:text-accent-hover">Save</button>
+                          <button onClick={() => setEditingMetricId(null)} className="text-sm text-ink-3 hover:text-ink">Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 text-sm">
+                          <span className="font-mono text-xs tnum">
+                            {/* §3: surface missing Finnhub data instead of hiding it */}
+                            {tracked
+                              ? <><span className="text-ink font-semibold">{formatNumber(metric.current_value)}</span><span className="text-ink-3"> / {targetComparator(metric.metric_name)} {formatNumber(metric.target_value)}</span></>
+                              : <span className="text-ink-3" title="Convict pulls this from live market data once a day — it populates on the next evaluation.">◷ awaiting data · target {targetComparator(metric.metric_name)} {formatNumber(metric.target_value)}</span>}
+                          </span>
+                          <button onClick={() => startEditMetric(metric)} className="text-ink-3 hover:text-ink">Edit</button>
+                          <button onClick={() => deleteMetric(metric)} className="text-ink-3 hover:text-status-broken">Delete</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {editingMetricId !== metric.id && (
+                      <Progress value={tracked ? pct : 0} className="mt-2.5" />
+                    )}
                   </div>
-                ) : (
-                  <div className="flex items-center gap-4">
-                    <span className="text-gray-400">
-                      {/* §3: surface missing Finnhub data instead of hiding it */}
-                      {metric.current_value == null
-                        ? <span className="text-gray-600">not tracked yet</span>
-                        : <>{metric.current_value} <span className="text-gray-600">/ target {metric.target_value}</span></>}
-                    </span>
-                    <button onClick={() => startEditMetric(metric)} className="text-gray-500 hover:text-white">Edit</button>
-                    <button onClick={() => deleteMetric(metric)} className="text-gray-500 hover:text-red-400">Delete</button>
-                  </div>
-                )}
-              </div>
-            ))
+                );
+              })}
+            </div>
           )}
 
           {/* Add metric — dropdown instead of free text (§3) */}
-          <div className="mt-4 pt-4 border-t border-gray-800">
-            <select
+          <div className="mt-5 pt-5 border-t border-line">
+            <label className="block text-xs font-medium text-ink-2 mb-2">Add a metric</label>
+            <Select
               value={metricName}
-              onChange={(e) => setMetricName(e.target.value)}
-              className="w-full px-3 py-2 mb-2 bg-gray-800 text-white text-sm rounded-lg outline-none"
-            >
-              <option value="">Select a metric…</option>
-              {METRIC_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              onChange={setMetricName}
+              options={METRIC_OPTIONS}
+              placeholder="Select a metric…"
+              className="mb-2"
+            />
             <input
               type="number"
               placeholder="Target value"
               value={targetValue}
               onChange={(e) => setTargetValue(e.target.value)}
-              className="w-full px-3 py-2 mb-2 bg-gray-800 text-white text-sm rounded-lg outline-none"
+              className={`${inputClass} w-full mb-2`}
             />
-            {metricError && <p className="text-sm text-red-400 mb-2" role="alert">{metricError}</p>}
+            {metricError && (
+              <p className="text-sm text-status-broken mb-2 flex items-start gap-1.5" role="alert">
+                <span aria-hidden="true">⚠</span>{metricError}
+              </p>
+            )}
             <button
               onClick={handleAddMetric}
               disabled={addingMetric}
-              className="w-full py-2 bg-green-500 hover:bg-green-400 disabled:opacity-60 text-black text-sm font-bold rounded-lg transition"
+              className="w-full py-2.5 bg-brand hover:bg-brand-hover disabled:opacity-60 text-brand-fg text-sm font-semibold rounded-lg transition"
             >
               {addingMetric ? 'Adding...' : 'Add Metric'}
             </button>

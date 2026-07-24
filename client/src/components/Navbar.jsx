@@ -1,9 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Brand from './Brand';
+import ThemeToggle from './ThemeToggle';
 
 /**
- * Shared header (§4). Previously every page rebuilt its own header markup.
- * Shows the signed-in user's email and a logout button when authenticated.
+ * Shared header (§4). Sticky, translucent, with the brand lockup, a theme
+ * toggle, and — when authenticated — the signed-in user and account controls.
  */
 function Navbar() {
   const navigate = useNavigate();
@@ -14,34 +16,48 @@ function Navbar() {
     navigate('/login');
   };
 
-  return (
-    <header className="flex items-center justify-between px-6 sm:px-8 py-4 border-b border-gray-800 bg-gray-950">
-      <button
-        onClick={() => navigate(session ? '/dashboard' : '/')}
-        className="text-xl font-bold text-white tracking-tight"
-      >
-        Convict
-      </button>
+  const email = session?.user?.email || '';
+  const initial = email ? email[0].toUpperCase() : '?';
 
-      {session && (
-        <div className="flex items-center gap-3">
-          <span className="hidden sm:inline text-sm text-gray-400 truncate max-w-[180px]">
-            {session.user?.email}
-          </span>
-          <button
-            onClick={() => navigate('/account')}
-            className="px-3 py-2 text-sm text-gray-400 hover:text-white transition"
-          >
-            Account
-          </button>
-          <button
-            onClick={handleLogout}
-            className="px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition"
-          >
-            Log out
-          </button>
+  return (
+    <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-md">
+      <div className="mx-auto max-w-6xl flex items-center justify-between px-4 sm:px-6 h-16">
+        <button
+          onClick={() => navigate(session ? '/dashboard' : '/')}
+          className="rounded-lg -ml-1 px-1"
+          aria-label="Convict home"
+        >
+          <Brand />
+        </button>
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeToggle />
+
+          {session && (
+            <>
+              <span className="hidden md:flex items-center gap-2 text-sm text-ink-2 pl-1">
+                <span className="grid place-items-center h-7 w-7 rounded-full bg-accent/15 text-accent text-xs font-bold">
+                  {initial}
+                </span>
+                <span className="truncate max-w-[160px]">{email}</span>
+              </span>
+
+              <button
+                onClick={() => navigate('/account')}
+                className="px-3 py-2 text-sm font-medium text-ink-2 hover:text-ink rounded-lg hover:bg-surface-2 transition"
+              >
+                Account
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-3 py-2 text-sm font-medium text-ink-2 hover:text-ink border border-line rounded-lg hover:bg-surface-2 transition"
+              >
+                Log out
+              </button>
+            </>
+          )}
         </div>
-      )}
+      </div>
     </header>
   );
 }
