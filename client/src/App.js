@@ -6,7 +6,9 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import CreateThesis from './pages/CreateThesis';
 import ThesisDetail from './pages/ThesisDetail';
-import Account from './pages/Account';
+import Profile from './pages/Profile';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 function App() {
   return (
@@ -15,6 +17,8 @@ function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route
             path="/dashboard"
             element={
@@ -40,10 +44,10 @@ function App() {
             }
           />
           <Route
-            path="/account"
+            path="/profile"
             element={
               <ProtectedRoute>
-                <Account />
+                <Profile />
               </ProtectedRoute>
             }
           />

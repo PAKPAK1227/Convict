@@ -4,7 +4,30 @@ import {
   MIN_PASSWORD_LENGTH,
   isDeleteConfirmed,
   DELETE_CONFIRM_PHRASE,
+  isValidUsername,
+  usernameError,
 } from '../validation';
+
+describe('username validation', () => {
+  test('accepts 3–20 letters/numbers/underscores', () => {
+    expect(isValidUsername('papak')).toBe(true);
+    expect(isValidUsername('deep_value_27')).toBe(true);
+    expect(usernameError('papak')).toBe('');
+  });
+
+  test('rejects bad length and characters', () => {
+    expect(isValidUsername('ab')).toBe(false);
+    expect(isValidUsername('a'.repeat(21))).toBe(false);
+    expect(isValidUsername('has space')).toBe(false);
+    expect(isValidUsername('nope!')).toBe(false);
+  });
+
+  test('usernameError explains the problem', () => {
+    expect(usernameError('')).toMatch(/choose/i);
+    expect(usernameError('ab')).toMatch(/3–20|3-20/);
+    expect(usernameError('bad!')).toMatch(/letters/i);
+  });
+});
 
 describe('isValidTicker', () => {
   test('accepts 1–5 letter tickers, case-insensitively', () => {

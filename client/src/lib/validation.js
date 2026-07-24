@@ -23,6 +23,27 @@ export function credentialError(email, password) {
   return '';
 }
 
+// Usernames: 3–20 chars, letters/numbers/underscore (mirrors the DB CHECK and
+// the username_available / set_username RPCs).
+export const USERNAME_MIN = 3;
+export const USERNAME_MAX = 20;
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
+
+export function isValidUsername(name) {
+  return USERNAME_RE.test((name || '').trim());
+}
+
+/** Returns an error string for a username, or '' if the format is valid. */
+export function usernameError(name) {
+  const v = (name || '').trim();
+  if (!v) return 'Choose a username.';
+  if (v.length < USERNAME_MIN || v.length > USERNAME_MAX) {
+    return `Username must be ${USERNAME_MIN}–${USERNAME_MAX} characters.`;
+  }
+  if (!USERNAME_RE.test(v)) return 'Use only letters, numbers, or underscores.';
+  return '';
+}
+
 // The user must type this exactly to arm the permanent-delete button.
 export const DELETE_CONFIRM_PHRASE = 'DELETE';
 

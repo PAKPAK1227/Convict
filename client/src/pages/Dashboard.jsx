@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar';
 import StatusBadge from '../components/StatusBadge';
 import MetricBar from '../components/MetricBar';
 import ConvictScore from '../components/ConvictScore';
+import UsernamePrompt from '../components/UsernamePrompt';
 import { freshnessRelative } from '../lib/format';
 import { deadlineStatus, daysUntil } from '../lib/deadline';
 import { useToast } from '../context/ToastContext';
@@ -42,6 +43,7 @@ function Dashboard() {
     const [deletingId, setDeletingId] = useState(null);
     const [score, setScore] = useState(50);
     const [resolvedCount, setResolvedCount] = useState(0);
+    const [needsUsername, setNeedsUsername] = useState(false);
 
     useEffect(() => {
         let mounted = true;
@@ -84,7 +86,7 @@ function Dashboard() {
             // select to their own row). Absent row / un-migrated DB -> default 50.
             const { data: profile } = await supabase
                 .from('profiles')
-                .select('convict_score, resolved_count')
+                .select('convict_score, resolved_count, username')
                 .maybeSingle();
 
             if (mounted) {
@@ -93,6 +95,7 @@ function Dashboard() {
                 if (profile) {
                     setScore(Math.round(profile.convict_score));
                     setResolvedCount(profile.resolved_count ?? 0);
+                    if (!profile.username) setNeedsUsername(true);
                 }
                 setLoading(false);
             }
@@ -159,6 +162,7 @@ function Dashboard() {
     return (
         <div className="min-h-screen bg-bg">
             <Navbar />
+            {needsUsername && <UsernamePrompt onDone={() => setNeedsUsername(false)} />}
             <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8">
                 <div className="flex items-end justify-between gap-4 mb-6">
                     <div>

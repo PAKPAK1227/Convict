@@ -43,10 +43,10 @@ function Navbar() {
               </span>
 
               <button
-                onClick={() => navigate('/account')}
+                onClick={() => navigate('/profile')}
                 className="px-3 py-2 text-sm font-medium text-ink-2 hover:text-ink rounded-lg hover:bg-surface-2 transition"
               >
-                Account
+                Profile
               </button>
               <button
                 onClick={handleLogout}
