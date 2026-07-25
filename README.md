@@ -102,6 +102,7 @@ Paste each file and run once, **in this order**:
 4. `supabase/migrations/20260724_thesis_deadline.sql`
 5. `supabase/migrations/20260724_convict_score.sql`
 6. `supabase/migrations/20260724_profiles_identity.sql`
+7. `supabase/migrations/20260725_protect_verdict.sql`
 
 (If a table already has rows that violate a new CHECK, either clean them first or
 append `NOT VALID` to that constraint — see the notes inside each file.)
