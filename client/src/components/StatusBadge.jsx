@@ -3,22 +3,24 @@
  * AND a label, never colour alone (~8% of men have red/green CVD and this app
  * lives on red vs green). Full literal class strings so Tailwind's JIT keeps
  * them. Purely presentational.
+ *
+ * The LABEL depends on whether the thesis has resolved:
+ *   Active (in progress)  → On Track / Watch / Behind  (how it's going)
+ *   Resolved (final)      → Met / Close / Broken        (how it ended)
+ * Colours are identical in both cases.
  */
 const META = {
   'On Track': {
-    label: 'On Track',
     glyph: '●',
     chip: 'bg-status-ok/10 text-status-ok ring-status-ok/25',
     dot: 'bg-status-ok',
   },
   Watch: {
-    label: 'Watch',
     glyph: '◐',
     chip: 'bg-status-watch/10 text-status-watch ring-status-watch/25',
     dot: 'bg-status-watch',
   },
   Broken: {
-    label: 'Broken',
     glyph: '○',
     chip: 'bg-status-broken/10 text-status-broken ring-status-broken/25',
     dot: 'bg-status-broken',
@@ -26,19 +28,24 @@ const META = {
 };
 
 const PENDING = {
-  label: 'Pending',
   glyph: '◇',
   chip: 'bg-status-pending/10 text-status-pending ring-status-pending/25',
   dot: 'bg-status-pending',
 };
 
+// Present-tense while in progress; past/final once resolved at the deadline.
+const ACTIVE_LABEL = { 'On Track': 'On Track', Watch: 'Watch', Broken: 'Behind' };
+const FINAL_LABEL = { 'On Track': 'Met', Watch: 'Close', Broken: 'Broken' };
+
 export function statusMeta(status) {
   return META[status] || PENDING;
 }
 
-function StatusBadge({ status, size = 'sm', className = '' }) {
+function StatusBadge({ status, resolved = false, size = 'sm', className = '' }) {
   const m = statusMeta(status);
-  const label = META[status] ? m.label : status || 'Pending';
+  const label = META[status]
+    ? (resolved ? FINAL_LABEL[status] : ACTIVE_LABEL[status])
+    : status || 'Pending';
   const pad =
     size === 'lg' ? 'px-3 py-1.5 text-sm gap-2' : 'px-2.5 py-1 text-xs gap-1.5';
   return (

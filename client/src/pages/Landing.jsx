@@ -9,8 +9,8 @@ import HeroDemo from '../components/HeroDemo';
 const STEPS = [
   { n: '01', t: 'Write the thesis', d: 'State what you believe, set a deadline, and pick the metric targets that would prove it.' },
   { n: '02', t: 'Set the targets', d: 'P/E, revenue growth, margin — the numbers your conviction rests on.' },
-  { n: '03', t: 'Get the verdict', d: 'Daily checks against live data grade it: On Track, Watch, or Broken.' },
-  { n: '04', t: 'Build your Score', d: 'At the deadline the verdict locks and moves your Convict Score (0–100). It shifts only on resolution — a high score means a real track record.' },
+  { n: '03', t: 'Track it live', d: 'Daily checks against live data grade it — On Track, Watch, or Behind — while the clock runs.' },
+  { n: '04', t: 'Get the verdict', d: 'At the deadline it locks as Met, Close, or Broken and moves your Convict Score (0–100). It shifts only on resolution — a high score means a real track record.' },
 ];
 
 const MICRO_STATS = [
@@ -108,9 +108,9 @@ function Landing() {
               {/* status legend */}
               <div className="mt-5 flex flex-wrap items-center gap-2.5 pl-1">
                 <span className="eyebrow">Every thesis resolves to</span>
-                <StatusBadge status="On Track" />
-                <StatusBadge status="Watch" />
-                <StatusBadge status="Broken" />
+                <StatusBadge status="On Track" resolved />
+                <StatusBadge status="Watch" resolved />
+                <StatusBadge status="Broken" resolved />
               </div>
             </div>
           </div>

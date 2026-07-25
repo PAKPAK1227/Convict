@@ -234,7 +234,7 @@ function Profile() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-semibold text-ink">{t.ticker}</span>
-                      <StatusBadge status={t.status} />
+                      <StatusBadge status={t.status} resolved />
                     </div>
                     <p className="text-sm text-ink-2 truncate mt-1">{t.thesis_text}</p>
                   </div>

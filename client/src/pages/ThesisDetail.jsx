@@ -247,7 +247,7 @@ function ThesisDetail() {
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="font-mono text-3xl font-semibold text-ink tracking-tight">{thesis.ticker}</h1>
-              <StatusBadge status={thesis.status} size="lg" />
+              <StatusBadge status={thesis.status} resolved={thesis.resolved} size="lg" />
             </div>
             <p className="text-ink-2 mt-1">{thesis.company_name}</p>
             {(() => {
@@ -331,7 +331,7 @@ function ThesisDetail() {
             <span className="text-[11px] text-ink-3">Refreshed daily from live market data</span>
           </div>
           <p className="text-xs text-ink-3 mb-4">
-            <span className="text-status-ok">On Track</span> = target met · <span className="text-status-watch">Watch</span> = within 25% · <span className="text-status-broken">Broken</span> = beyond · thesis takes its worst metric. <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
+            Graded vs target: <span className="text-status-ok">On Track</span> (meets) · <span className="text-status-watch">Watch</span> (within 25%) · <span className="text-status-broken">Behind</span> (beyond) — worst metric wins. Provisional until the deadline, then it locks as <span className="text-status-ok">Met</span> / <span className="text-status-watch">Close</span> / <span className="text-status-broken">Broken</span>. <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
           </p>
 
           {metrics.length === 0 ? (

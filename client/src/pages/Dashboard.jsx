@@ -156,7 +156,7 @@ function Dashboard() {
         { label: 'Theses', value: summary.total, accent: 'text-ink', glyph: null },
         { label: 'On Track', value: summary.ok, accent: 'text-status-ok', glyph: '●' },
         { label: 'Watch', value: summary.watch, accent: 'text-status-watch', glyph: '◐' },
-        { label: 'Broken', value: summary.broken, accent: 'text-status-broken', glyph: '○' },
+        { label: 'Behind', value: summary.broken, accent: 'text-status-broken', glyph: '○' },
     ];
 
     return (
@@ -248,7 +248,7 @@ function Dashboard() {
                                             <h2 className="font-mono text-lg font-semibold text-ink tracking-tight">{thesis.ticker}</h2>
                                             <p className="text-ink-2 text-sm truncate">{thesis.company_name}</p>
                                         </div>
-                                        <StatusBadge status={thesis.status} />
+                                        <StatusBadge status={thesis.status} resolved={thesis.resolved} />
                                     </div>
 
                                     {metrics.length > 0 && (
