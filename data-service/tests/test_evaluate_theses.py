@@ -109,21 +109,92 @@ def test_thesis_on_track_ignores_unknown():
 
 # --- Convict Score: score_delta / apply_resolution ------------------------- #
 
-def test_on_track_raises_broken_lowers_watch_neutral():
+def test_on_track_raises_broken_lowers():
     assert score_delta(50.0, "On Track", "Medium") > 0
     assert score_delta(50.0, "Broken", "Medium") < 0
-    assert score_delta(50.0, "Watch", "Medium") == 0.0
 
 
-def test_delta_is_symmetric_at_midpoint():
-    up = score_delta(50.0, "On Track", "Medium")
-    down = score_delta(50.0, "Broken", "Medium")
-    assert up == 4.0 and down == -4.0  # SCORE_STEP(8) * 1.0 * (±0.5)
+def test_close_costs_a_little_but_nothing_like_broken():
+    """A near-miss must not be free.
+
+    If Close scored 0 (the original design), "set a target you'll land just
+    short of" would be a risk-free strategy — you could never lose points.
+    """
+    close = score_delta(50.0, "Watch", "Medium")
+    broken = score_delta(50.0, "Broken", "Medium")
+    assert close < 0
+    assert abs(close) < abs(broken) / 4
+
+
+def test_close_still_scales_with_conviction():
+    high = score_delta(50.0, "Watch", "High")
+    medium = score_delta(50.0, "Watch", "Medium")
+    low = score_delta(50.0, "Watch", "Low")
+    assert high < medium < low < 0
 
 
 def test_higher_conviction_moves_more():
     assert score_delta(50.0, "On Track", "High") > score_delta(50.0, "On Track", "Medium")
     assert score_delta(50.0, "On Track", "Low") < score_delta(50.0, "On Track", "Medium")
+
+
+# --- Convict Score: the incentive property --------------------------------- #
+#
+# The design constraint that matters most, and the one that's easiest to break
+# by "just retuning the weights": conviction is self-declared and free, so it
+# must never pay to declare High on everything. These tests pin the incentive,
+# not the arithmetic — they'd survive a rescaling of SCORE_STEP but fail if the
+# gain/loss asymmetry were flattened back out.
+
+def _expected_value(conviction, p):
+    """Score change expected from one call you believe lands with probability p."""
+    win = score_delta(50.0, "On Track", conviction)
+    lose = score_delta(50.0, "Broken", conviction)
+    return p * win + (1 - p) * lose
+
+
+def _crossover(conviction_a, conviction_b):
+    """The p at which conviction_a overtakes conviction_b, by bisection."""
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if _expected_value(conviction_a, mid) > _expected_value(conviction_b, mid):
+            hi = mid
+        else:
+            lo = mid
+    return (lo + hi) / 2
+
+
+def test_losses_are_weighted_more_steeply_than_gains():
+    """The whole mechanism rests on this: High must cost more than it pays."""
+    high_gain = score_delta(50.0, "On Track", "High")
+    high_loss = abs(score_delta(50.0, "Broken", "High"))
+    assert high_loss > high_gain
+
+    low_gain = score_delta(50.0, "On Track", "Low")
+    low_loss = abs(score_delta(50.0, "Broken", "Low"))
+    assert low_loss < low_gain  # Low is the reverse trade: safer, pays less
+
+
+def test_declaring_high_on_everything_is_not_optimal():
+    """A merely-better-than-a-coin-flip forecaster should NOT pick High."""
+    assert _expected_value("High", 0.55) < _expected_value("Medium", 0.55)
+    assert _expected_value("High", 0.55) < _expected_value("Low", 0.55)
+
+
+def test_high_pays_off_only_when_you_are_genuinely_confident():
+    assert _expected_value("High", 0.85) > _expected_value("Medium", 0.85)
+    assert _expected_value("High", 0.65) < _expected_value("Medium", 0.65)
+
+
+def test_each_conviction_level_owns_a_band_of_confidence():
+    """Documented in docs/SCORING.md: Low < ~67% < Medium < ~73% < High."""
+    med_over_low = _crossover("Medium", "Low")
+    high_over_med = _crossover("High", "Medium")
+    assert 0.66 < med_over_low < 0.68
+    assert 0.72 < high_over_med < 0.74
+    # Ordered bands, so every level is the right answer somewhere.
+    assert med_over_low < high_over_med
 
 
 def test_a_single_call_moves_only_gradually():

@@ -1,0 +1,127 @@
+# Watches the nightly evaluator for *silence*.
+#
+# evaluate-theses.yml exits non-zero when a run goes wrong, and GitHub emails
+# you about failed runs. That covers "it ran and broke". It does not cover "it
+# never ran" — which is the more likely failure:
+#
+#   * GitHub auto-disables scheduled workflows after 60 days of repo inactivity
+#   * a free-tier Supabase project pauses after a week of no requests
+#   * a schedule can simply be dropped under Actions load
+#
+# In all three cases nothing turns red. Every thesis just freezes on stale
+# numbers and the first you hear of it is a user saying "my data is wrong".
+#
+# So: the evaluator stamps public.evaluator_runs on every run, and this job
+# checks that stamp independently. No stamp in 36 hours -> this job fails ->
+# GitHub emails you. It also makes an occasional commit to keep the 60-day
+# inactivity clock from ever running out.
+
+name: Evaluator Heartbeat
+
+on:
+  schedule:
+    # 12:00 UTC — six hours after the 06:00 evaluator, so a slow or retried run
+    # doesn't trip a false alarm.
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write # for the keepalive commit below
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Check the evaluator stamped a run
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MAX_AGE_HOURS: '36'
+        run: |
+          set -euo pipefail   # deliberately no -x: it would echo the service key
+
+          latest=$(curl -sS --fail-with-body \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/evaluator_runs?select=ran_at,ok,write_failures,failed_tickers&order=ran_at.desc&limit=1")
+
+          ran_at=$(echo "$latest" | jq -r '.[0].ran_at // empty')
+
+          if [ -z "$ran_at" ]; then
+            echo "::error::No evaluator run has ever been recorded."
+            echo "Either 20260726_evaluator_heartbeat.sql was never deployed, or the"
+            echo "evaluator has not completed a run since it was."
+            exit 1
+          fi
+
+          # PostgREST returns e.g. 2026-07-26T06:00:00.123456+00:00 — GNU date
+          # handles that, but drop the fractional seconds so a parse failure can
+          # never masquerade as a stale heartbeat.
+          ran_at_clean=$(echo "$ran_at" | sed -E 's/\.[0-9]+//')
+          if ! ran_epoch=$(date -u -d "$ran_at_clean" +%s 2>/dev/null); then
+            echo "::error::Could not parse heartbeat timestamp '${ran_at}'."
+            echo "This is a bug in this workflow, not necessarily a dead evaluator."
+            exit 1
+          fi
+
+          age_seconds=$(( $(date -u +%s) - ran_epoch ))
+          age_hours=$(( age_seconds / 3600 ))
+          echo "Last evaluator run: ${ran_at} (${age_hours}h ago)"
+
+          if [ "$age_hours" -gt "$MAX_AGE_HOURS" ]; then
+            echo "::error::The evaluator has not run in ${age_hours} hours."
+            echo "Check: is the Evaluate Theses workflow still enabled? Is the"
+            echo "Supabase project paused? Every thesis is serving stale data."
+            exit 1
+          fi
+
+          # A bad run already turned its own job red — surface it here, but don't
+          # fail twice for the same incident.
+          if [ "$(echo "$latest" | jq -r '.[0].ok')" != "true" ]; then
+            echo "::warning::The last run completed with failures: $(echo "$latest" | jq -c '.[0]')"
+          fi
+
+          echo "Heartbeat healthy."
+
+      - name: Trim old heartbeat rows
+        if: success()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        continue-on-error: true # housekeeping only; never fail the alarm on this
+        run: |
+          set -euo pipefail
+          curl -sS -X POST \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            "${SUPABASE_URL}/rest/v1/rpc/prune_evaluator_runs" -d '{}' > /dev/null
+          echo "Pruned runs older than 90 days."
+
+      - name: Keep scheduled workflows enabled
+        if: always() # the 60-day clock must be reset even during an incident
+        run: |
+          set -euo pipefail
+
+          # GitHub disables cron workflows after 60 days without repo activity.
+          # Any commit resets that, so we only need one if the repo has actually
+          # gone quiet — while you're developing normally this does nothing.
+          last_commit=$(git log -1 --format=%ct)
+          idle_days=$(( ( $(date +%s) - last_commit ) / 86400 ))
+          echo "Last commit was ${idle_days} day(s) ago."
+
+          if [ "$idle_days" -lt 25 ]; then
+            echo "Repo is active; no keepalive commit needed."
+            exit 0
+          fi
+
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/keepalive
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive
+          # [skip ci] keeps Vercel from burning a production build on this.
+          git commit -m "chore: keepalive to stop Actions disabling the cron [skip ci]"
+          git push

@@ -85,11 +85,14 @@ above is complete.
 **Convict Score — how it's calculated (shipped):** persisted per-user in
 `profiles.convict_score`, 0–100, starts at 50. It changes **only when a thesis
 resolves at its deadline** (one scoring event, applied once via `theses.resolved`).
-Each event: `delta = 8 · conviction_weight · (outcome − 0.5)`, where outcome is
-On Track=1 / Watch=0.5 / Broken=0 and conviction_weight is High=1.25 / Med=1.0 /
-Low=0.75, then damped toward 0 near the 0/100 bounds so extremes require sustained
-accuracy. Written only by the evaluator (service key). **Deleting a thesis never
-changes the score** (anti-gaming — you can't erase a loss). See
+Each event: `delta = base · weight[conviction]`, where base is On Track=+4 /
+Close=−0.5 / Broken=−4, and the conviction weight is **asymmetric** — gains
+High=1.15 / Med=1.0 / Low=0.85, losses High=1.40 / Med=1.0 / Low=0.70 — then
+damped toward 0 near the 0/100 bounds so extremes require sustained accuracy.
+The asymmetry is what stops self-declared conviction from collapsing to
+"always High"; see [SCORING.md](SCORING.md) for the derivation. Written only by
+the evaluator (service key). **Deleting a thesis never changes the score**
+(anti-gaming — you can't erase a loss). See
 `data-service/evaluate_theses.py` (`score_delta`, `apply_resolution`).
 
 **Prerequisite for the Convict Score:** create and populate `status_history`

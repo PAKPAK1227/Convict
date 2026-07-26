@@ -171,3 +171,85 @@ delete from the `auth` schema). Until then the button will error with a helpful
 - A Login component render test was omitted: CRA 5's frozen Jest config can't
   resolve react-router-dom v7's ESM `exports` map. The extracted pure logic it
   would have exercised is covered directly.
+
+---
+
+## Evaluator monitoring — "green" didn't mean "worked" (2026-07-26)
+
+Two silent-failure paths were closed. Neither was a bug in the sense of wrong
+code; both were cases where the system failed and **nothing told anyone**.
+
+### Failure 1 — swallowed DB writes exited 0
+
+`evaluate_all_metrics()` returned only the count of tickers Finnhub couldn't
+fetch. Every database write was wrapped in `try/except … logger.error(…)` and
+then execution continued, so a failed `profiles` upsert — someone's Convict
+Score not updating — produced a **green Actions run and no email**.
+
+That specific failure is the worst one in the system: by the time the score
+write is attempted the thesis is already marked `resolved`, so the scoring event
+is gone for good and will never be retried.
+
+**Fix:** the run now accumulates a `stats` dict counting every write failure
+alongside the fetch failures, `_apply_score_events()` returns success/failure
+instead of `None`, and `main()` exits non-zero if *any* count is non-zero. A red
+run now means "something didn't get written," which is what it always implied.
+
+### Failure 2 — the cron stopping entirely
+
+A failing run emails you. A run that never happens doesn't. Three realistic ways
+that occurs:
+
+- GitHub **auto-disables scheduled workflows after 60 days of repo inactivity**
+- a free-tier Supabase project **pauses after ~a week of no requests**
+- schedules get dropped under Actions load
+
+In all three, nothing turns red — theses just freeze on stale numbers, and the
+symptom users report is "my data is wrong", not "there's an error".
+
+**Fix, two parts:**
+
+1. Every run stamps `public.evaluator_runs` (`20260726_evaluator_heartbeat.sql`)
+   with a timestamp, an `ok` flag, and per-stage counts. `write_heartbeat()`
+   never raises — a broken heartbeat must not change the outcome of the run it
+   describes.
+2. `.github/workflows/evaluator-heartbeat.yml` runs at 12:00 UTC (six hours
+   after the evaluator, so a slow run isn't a false alarm), reads the newest
+   stamp, and **fails if it's older than 36 hours** — which emails you. It also
+   makes a keepalive commit if the repo has been quiet for 25+ days, so the
+   60-day clock never runs out. The commit carries `[skip ci]` so Vercel doesn't
+   burn a production build on it.
+
+**Why a table rather than an error-tracking vendor:** this detects *absence*,
+which a client-side tracker structurally cannot. It costs one row a day, adds no
+vendor and no CSP change, and the counts double as a record of what the
+evaluator has actually been doing. Pruned to 90 days by `prune_evaluator_runs()`.
+
+**Why `evaluator_runs` has RLS on with no policies:** the service key bypasses
+RLS, so the evaluator writes fine, while no client can read it at all. Row
+counts would leak how many users exist, and operational data isn't something
+end users need. If the app ever shows "data last refreshed X ago", expose
+`ran_at` through a view rather than opening the table.
+
+### ⚠️ One-time deploy step
+Paste **`supabase/migrations/20260726_evaluator_heartbeat.sql`** into the
+Supabase SQL editor and run it once. Until then the evaluator logs
+`Failed to write heartbeat` (harmless — the run itself still works) and the
+heartbeat workflow fails with "No evaluator run has ever been recorded."
+
+### ⚠️ Check your notification settings
+This whole mechanism assumes GitHub emails you about failed Actions runs.
+Verify at **GitHub → Settings → Notifications → Actions** that failure
+notifications are on for the address you actually read. Without that, the runs
+turn red and no one looks.
+
+### Deliberately not done
+**Sentry / client-side error tracking.** Considered and deferred: at current
+user numbers, issues are reproducible directly, and the setup cost is real —
+`vercel.json` pins `connect-src` to self + Supabase, so the CSP would need
+`https://*.ingest.sentry.io` added, and CRA 5 with no craco has no clean hook
+for source-map upload (Vercel's Sentry integration is the way in, when it's
+time). Revisit when reports start arriving from users who can't be messaged
+directly. The gap it would close — Supabase call failures at the
+`console.error` sites in `Dashboard`/`ThesisDetail`/`CreateThesis`/`Profile`
+currently die with the tab — is real but not yet urgent.

@@ -8,14 +8,15 @@ import StatusBadge from './StatusBadge';
  * create page.
  *
  * Numbers quoted here mirror the evaluator (data-service/evaluate_theses.py):
- * SCORE_STEP 8 at mid-range (±4), CONVICTION_WEIGHT High 1.25 / Medium 1 /
- * Low 0.75, and the 25% Watch band. Keep them in sync if that file changes.
+ * BASE_MOVE ±4 at mid-range, GAIN_WEIGHT / LOSS_WEIGHT per conviction, and the
+ * 25% Watch band. Keep them in sync if that file changes — docs/SCORING.md
+ * explains why the gain and loss columns differ.
  */
 
 const CONVICTION_ROWS = [
-  { level: 'High', pips: 3, move: '±5 pts', blurb: "You'd act on this." },
-  { level: 'Medium', pips: 2, move: '±4 pts', blurb: 'Your default.' },
-  { level: 'Low', pips: 1, move: '±3 pts', blurb: 'A hunch worth tracking.' },
+  { level: 'High', pips: 3, gain: '+4.6', loss: '−5.6', blurb: "You'd act on this." },
+  { level: 'Medium', pips: 2, gain: '+4.0', loss: '−4.0', blurb: 'Your default.' },
+  { level: 'Low', pips: 1, gain: '+3.4', loss: '−2.8', blurb: 'A hunch worth tracking.' },
 ];
 
 const TARGET_ROWS = [
@@ -69,24 +70,32 @@ const STEPS = [
       <>
         <p>
           Conviction doesn't change whether you're right — it changes what the call is{' '}
-          <span className="text-ink font-medium">worth</span>. Back a call hard and it moves your
-          score more, in both directions.
+          <span className="text-ink font-medium">worth</span>. And it isn't a free bet: high
+          conviction pays a bit more, and costs a lot more.
         </p>
         <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-end gap-4 pr-3.5 eyebrow">
+            <span className="w-12 text-right">Right</span>
+            <span className="w-12 text-right">Wrong</span>
+          </div>
           {CONVICTION_ROWS.map((c) => (
             <Row key={c.level}>
               <span className="flex items-center gap-2.5 min-w-0">
                 <Pips filled={c.pips} />
                 <span className="text-sm text-ink font-medium">{c.level}</span>
-                <span className="text-xs text-ink-3 truncate">{c.blurb}</span>
+                <span className="text-xs text-ink-3 truncate hidden sm:inline">{c.blurb}</span>
               </span>
-              <span className="shrink-0 font-mono text-xs tnum text-ink-2">{c.move}</span>
+              <span className="shrink-0 flex items-center gap-4 font-mono text-xs tnum">
+                <span className="w-12 text-right text-status-ok">{c.gain}</span>
+                <span className="w-12 text-right text-status-broken">{c.loss}</span>
+              </span>
             </Row>
           ))}
         </div>
         <p className="mt-3 text-xs text-ink-3">
-          A high-conviction miss costs more than a low-conviction one. Save "High" for the calls
-          you'd defend out loud.
+          That gap is deliberate. Calling everything "High" only pays off if you're right roughly
+          three times in four — below that you score better by being honest and picking Low. Save
+          High for the calls you'd defend out loud.
         </p>
       </>
     ),
@@ -161,9 +170,13 @@ const STEPS = [
           day-to-day swings don't touch it, so you can't farm it by opening positions.
         </p>
         <p className="mt-3">
-          Each resolved call nudges it by a few points, weighted by the conviction you set. Gains
-          get harder near 100 and losses get harder near 0, so a real track record beats one lucky
-          quarter.
+          Each resolved call nudges it by a few points, weighted by the conviction you set. A near
+          miss — <span className="text-status-watch font-medium">Close</span> — costs only half a
+          point: it registers, but it's nothing like being outright wrong.
+        </p>
+        <p className="mt-3">
+          Gains get harder as you approach 100 and losses get harder near 0, so a real track record
+          beats one lucky quarter.
         </p>
       </>
     ),

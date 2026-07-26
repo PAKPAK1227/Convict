@@ -124,26 +124,54 @@ def derive_thesis_status(metric_statuses):
 # genuinely reflects sustained accuracy, not one lucky call.
 
 SCORE_START = 50.0
-SCORE_STEP = 8.0  # base move at mid-range for a Medium-conviction call
-CONVICTION_WEIGHT = {"High": 1.25, "Medium": 1.0, "Low": 0.75}
-# Resolved outcome mapped to [0, 1]: right / partial / wrong.
-OUTCOME_VALUE = {"On Track": 1.0, "Watch": 0.5, "Broken": 0.0}
+
+# Points moved at mid-range (score 50) by a *Medium*-conviction call, before
+# conviction weighting and edge damping.
+#
+# Close ("Watch") is a small negative rather than zero on purpose. A near-miss
+# that costs nothing makes "set a target you'll land just short of" a risk-free
+# strategy — you could never lose points. -0.5 registers the miss without
+# pretending it's the same as being outright wrong (8x smaller than Broken).
+BASE_MOVE = {
+    "On Track": 4.0,   # target met
+    "Watch": -0.5,     # missed, but within BROKEN_THRESHOLD of the target
+    "Broken": -4.0,    # missed outright
+}
+
+# Conviction is *self-declared and free*, so it must not be weighted
+# symmetrically: if High multiplied gains and losses equally, anyone right more
+# than half the time would maximise their score by declaring High on every call,
+# and the field would carry no information.
+#
+# Making the downside steeper than the upside prices that honesty in. Expected
+# value at score 50, for a call you believe has probability p of landing:
+#
+#     High    10.2p - 5.6      best when p > ~72.7%
+#     Medium   8.0p - 4.0      best when ~66.7% < p < ~72.7%
+#     Low      6.2p - 2.8      best when p < ~66.7%
+#
+# So "High" now genuinely asserts roughly 3-to-1 odds. See docs/SCORING.md for
+# the full derivation; tests/ pins these crossover points.
+GAIN_WEIGHT = {"High": 1.15, "Medium": 1.0, "Low": 0.85}
+LOSS_WEIGHT = {"High": 1.40, "Medium": 1.0, "Low": 0.70}
 
 
 def score_delta(current_score, thesis_status, conviction_level):
     """Signed change a single resolved thesis applies to the Convict Score.
 
-    On Track raises it, Broken lowers it, Watch is neutral. Weighted by
-    conviction and damped toward 0 near the bounds. Pure — safe to unit-test.
+    On Track raises it; Broken lowers it hard; Watch lowers it slightly. Scaled
+    by conviction — more steeply on losses than on gains — and damped toward 0
+    near the bounds. Pure — safe to unit-test.
     """
-    outcome = OUTCOME_VALUE.get(thesis_status)
-    if outcome is None:
+    base = BASE_MOVE.get(thesis_status)
+    if base is None:
         return 0.0  # Unknown / Pending never scores
-    weight = CONVICTION_WEIGHT.get(conviction_level, 1.0)
-    signed = SCORE_STEP * weight * (outcome - 0.5)
-    if signed > 0:
+
+    if base > 0:
+        signed = base * GAIN_WEIGHT.get(conviction_level, 1.0)
         signed *= (100.0 - current_score) / 50.0  # harder to gain near 100
-    elif signed < 0:
+    else:
+        signed = base * LOSS_WEIGHT.get(conviction_level, 1.0)
         signed *= current_score / 50.0            # harder to lose near 0
     return signed
 
@@ -185,8 +213,10 @@ def get_cached_fundamentals(ticker, cache):
 def evaluate_all_metrics():
     """Evaluate every tracked metric and update statuses.
 
-    Returns the number of tickers whose fundamentals could not be fetched, so
-    the caller can exit non-zero and surface the failure in CI (§5).
+    Returns a stats dict describing the run. Every failure is counted, not just
+    the Finnhub ones: a swallowed DB write means somebody's score or status
+    silently didn't update, and a green Actions run would hide that. The caller
+    turns any non-zero failure count into a non-zero exit.
     """
     supabase = get_supabase()
 
@@ -200,6 +230,14 @@ def evaluate_all_metrics():
     failed_tickers = set()
     thesis_statuses = {}
     thesis_meta = {}
+    stats = {
+        "metrics_seen": len(metrics),
+        "metrics_updated": 0,
+        "theses_updated": 0,
+        "theses_resolved": 0,
+        "scores_updated": 0,
+        "write_failures": 0,
+    }
 
     for metric in metrics:
         thesis = metric.get("theses") or {}
@@ -239,8 +277,10 @@ def evaluate_all_metrics():
             ).eq("id", metric["id"]).execute()
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to update metric %s: %s", metric.get("id"), exc)
+            stats["write_failures"] += 1
             continue
 
+        stats["metrics_updated"] += 1
         logger.info(
             "%s — %s: target %s, current %s -> %s",
             ticker, metric_name, target_value, current_value, status,
@@ -261,8 +301,10 @@ def evaluate_all_metrics():
                     {"status": new_status, "resolved": True}
                 ).eq("id", thesis_id).execute()
                 logger.info("Thesis %s RESOLVED as %s (verdict locked)", thesis_id, new_status)
+                stats["theses_resolved"] += 1
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to resolve thesis %s: %s", thesis_id, exc)
+                stats["write_failures"] += 1
                 continue
             user_id = meta.get("user_id")
             if user_id:
@@ -275,22 +317,33 @@ def evaluate_all_metrics():
                     {"status": new_status}
                 ).eq("id", thesis_id).execute()
                 logger.info("Thesis %s set to %s", thesis_id, new_status)
+                stats["theses_updated"] += 1
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to update thesis %s: %s", thesis_id, exc)
+                stats["write_failures"] += 1
 
     # Apply Convict Score changes one user at a time — damping depends on the
     # running score, so fold each user's events sequentially from their stored value.
     for user_id, events in resolutions_by_user.items():
-        _apply_score_events(supabase, user_id, events)
+        if _apply_score_events(supabase, user_id, events):
+            stats["scores_updated"] += 1
+        else:
+            stats["write_failures"] += 1
 
+    stats["failed_tickers"] = sorted(failed_tickers)
     if failed_tickers:
         logger.warning("Completed with %d failed ticker(s): %s",
                        len(failed_tickers), ", ".join(sorted(failed_tickers)))
-    return len(failed_tickers)
+    return stats
 
 
 def _apply_score_events(supabase, user_id, events):
-    """Fold a user's resolution events into their Convict Score and persist it."""
+    """Fold a user's resolution events into their Convict Score and persist it.
+
+    Returns True on a successful write. A failure here is the quietest bug in
+    the system — the thesis is already locked, so the scoring event is gone for
+    good and will never be retried — so the caller counts it and fails the run.
+    """
     try:
         resp = supabase.table("profiles").select(
             "convict_score, resolved_count"
@@ -316,11 +369,76 @@ def _apply_score_events(supabase, user_id, events):
             }
         ).execute()
         logger.info("User %s Convict Score -> %.2f (%d resolved)", user_id, score, count)
+        return True
     except Exception as exc:  # noqa: BLE001
-        logger.error("Failed to update score for user %s: %s", user_id, exc)
+        logger.error(
+            "Failed to update score for user %s (%d scoring event(s) LOST): %s",
+            user_id, len(events), exc,
+        )
+        return False
+
+
+# --------------------------------------------------------------------------- #
+# Heartbeat
+# --------------------------------------------------------------------------- #
+# The nightly cron failing loudly is only half the problem: it can also stop
+# running entirely (GitHub auto-disables scheduled workflows after 60 days of
+# repo inactivity, and a paused Supabase project takes it down too). In that
+# case there is no red run to notice — every thesis just quietly freezes on
+# stale numbers, and the symptom users report is "my data is wrong".
+#
+# So each run stamps evaluator_runs, and .github/workflows/evaluator-heartbeat.yml
+# checks that stamp on its own schedule and fails if it has gone stale.
+
+def write_heartbeat(supabase, stats, ok):
+    """Record that the evaluator ran. Never raises — a failed heartbeat must not
+    mask the result of the run it is describing."""
+    try:
+        supabase.table("evaluator_runs").insert({
+            "ok": ok,
+            "metrics_seen": stats.get("metrics_seen", 0),
+            "metrics_updated": stats.get("metrics_updated", 0),
+            "theses_updated": stats.get("theses_updated", 0),
+            "theses_resolved": stats.get("theses_resolved", 0),
+            "scores_updated": stats.get("scores_updated", 0),
+            "write_failures": stats.get("write_failures", 0),
+            "failed_tickers": stats.get("failed_tickers", []),
+        }).execute()
+        logger.info("Heartbeat written (ok=%s)", ok)
+    except Exception as exc:  # noqa: BLE001
+        # Most likely cause: 20260726_evaluator_heartbeat.sql not deployed yet.
+        logger.error("Failed to write heartbeat: %s", exc)
+
+
+def main():
+    """Run an evaluation and return a process exit code."""
+    try:
+        stats = evaluate_all_metrics()
+    except Exception as exc:  # noqa: BLE001 - a crash still deserves a heartbeat
+        logger.exception("Evaluation run crashed: %s", exc)
+        try:
+            write_heartbeat(get_supabase(), {}, ok=False)
+        except Exception:  # noqa: BLE001
+            pass
+        return 1
+
+    failures = stats["write_failures"] + len(stats["failed_tickers"])
+    ok = failures == 0
+
+    logger.info(
+        "Run summary: %d metric(s) seen, %d updated, %d thesis update(s), "
+        "%d resolved, %d score(s) written, %d failure(s)",
+        stats["metrics_seen"], stats["metrics_updated"], stats["theses_updated"],
+        stats["theses_resolved"], stats["scores_updated"], failures,
+    )
+
+    write_heartbeat(get_supabase(), stats, ok)
+
+    # Non-zero exit turns the GitHub Actions run red so failures are visible (§5).
+    # This now covers DB write failures too, not just Finnhub ones — previously a
+    # lost score update exited 0 and the run looked healthy.
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    failures = evaluate_all_metrics()
-    # Non-zero exit turns the GitHub Actions run red so failures are visible (§5).
-    sys.exit(1 if failures else 0)
+    sys.exit(main())

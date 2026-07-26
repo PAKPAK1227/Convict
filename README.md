@@ -38,16 +38,29 @@ A long-term, credit-score-style rating in **0–100, starting at 50**. It change
 applied once. Each event:
 
 ```
-delta = 8 × conviction_weight × (outcome − 0.5)
-outcome:           On Track = 1.0 · Watch = 0.5 · Broken = 0.0
-conviction_weight: High = 1.25 · Medium = 1.0 · Low = 0.75
+base = On Track +4.0 · Close −0.5 · Broken −4.0
+delta = base × weight[conviction]      then damped toward 0 near the bounds
+
+                gain    loss
+High            ×1.15   ×1.40      →  +4.6 / −5.6 at score 50
+Medium          ×1.00   ×1.00      →  +4.0 / −4.0
+Low             ×0.85   ×0.70      →  +3.4 / −2.8
 ```
 
-…then **damped toward 0 near the bounds**, so 0 and 100 are asymptotic and
-require *sustained* accuracy. One correct Medium call is only +4 (50 → 54). A
-high score genuinely means someone predicts the market well. Deleting a thesis
+**Losses are weighted more steeply than gains, on purpose.** Conviction is
+self-declared and free — if it scaled both directions equally, anyone right more
+than half the time would maximise their score by declaring High on everything,
+and the field would carry no information. With the asymmetry, High only pays off
+above ~73% confidence and Low is the better call below ~67%, so the level you
+pick is a real signal. A near-miss costs a token −0.5 rather than nothing, so
+"set a target you'll land just short of" isn't a free strategy.
+
+Damping toward the bounds makes 0 and 100 asymptotic and requires *sustained*
+accuracy. One correct Medium call is only +4 (50 → 54). Deleting a thesis
 **never** changes the score (anti-gaming). It's written **only** by the nightly
 evaluator (service key) — clients can never edit it.
+
+Full derivation and the decision log: [docs/SCORING.md](docs/SCORING.md).
 
 ---
 

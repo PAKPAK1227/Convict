@@ -1,32 +1,13 @@
-// Convict Score v1 — a per-user accuracy score derived from the current
-// statuses of their theses. Starts at a neutral 50, climbs toward 100 as calls
-// land On Track, sinks toward 0 as they Break.
+// Convict Score presentation helpers.
 //
-// Shrinkage toward 50 by call count (K) means the score *builds up* with a
-// track record rather than jumping to an extreme off a single thesis — one
-// On Track call nudges you to ~60, not 100.
+// The score itself is NOT computed here. It's persisted in profiles.convict_score
+// and written only by the nightly evaluator when a thesis resolves — see
+// data-service/evaluate_theses.py (score_delta) and docs/SCORING.md.
 //
-// NOTE: this v1 is computed client-side from present standings (no history).
-// The persisted, resolution-based version that survives over time and powers a
-// leaderboard is Phase 2 (see docs/ROADMAP.md §9).
-
-const POINTS = { 'On Track': 1, Watch: 0.5, Broken: 0 };
-const K = 4; // shrinkage strength toward the neutral 50
-
-export function convictScore(theses) {
-  let sum = 0;
-  let n = 0;
-  for (const t of theses || []) {
-    const p = POINTS[t?.status];
-    if (p === undefined) continue; // Pending / not-yet-evaluated excluded
-    sum += p;
-    n += 1;
-  }
-  if (n === 0) return 50;
-  const avg = sum / n;
-  const raw = 50 + (avg - 0.5) * 100 * (n / (n + K));
-  return Math.round(Math.max(0, Math.min(100, raw)));
-}
+// An earlier client-side convictScore() estimated it from current standings.
+// That was removed once the score became authoritative server-side: two
+// formulas for one number is a bug waiting to happen, and this one would have
+// disagreed with the real score the moment the weights changed.
 
 export function scoreTier(score) {
   if (score >= 80) return { label: 'Elite', cls: 'text-status-ok' };
