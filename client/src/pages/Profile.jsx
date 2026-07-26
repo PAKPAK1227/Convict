@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import ConvictScore from '../components/ConvictScore';
 import StatusBadge from '../components/StatusBadge';
+import Onboarding from '../components/Onboarding';
+import { markOnboarded } from '../lib/onboarding';
 import { useToast } from '../context/ToastContext';
 import {
   isDeleteConfirmed,
@@ -37,8 +39,16 @@ function Profile() {
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
+  const [showTour, setShowTour] = useState(false);
 
   const email = session?.user?.email || '';
+  const userId = session?.user?.id;
+
+  // Replaying re-stamps onboarded_at on close, so it stays dismissed.
+  const closeTour = async () => {
+    setShowTour(false);
+    await markOnboarded(userId);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -120,6 +130,7 @@ function Profile() {
   return (
     <div className="min-h-screen bg-bg">
       <Navbar />
+      {showTour && <Onboarding onClose={closeTour} />}
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 animate-fade-up">
         <button
           onClick={() => navigate('/dashboard')}
@@ -245,6 +256,20 @@ function Profile() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Help */}
+        <div className="bg-surface border border-line rounded-2xl shadow-card p-6 mb-6">
+          <h2 className="eyebrow mb-1">How Convict works</h2>
+          <p className="text-sm text-ink-2 mb-4">
+            A two-minute refresher on conviction levels, targets, verdicts, and the Convict Score.
+          </p>
+          <button
+            onClick={() => setShowTour(true)}
+            className="px-5 py-2.5 border border-line text-ink text-sm font-semibold rounded-xl hover:bg-surface-2 transition"
+          >
+            Replay the walkthrough
+          </button>
         </div>
 
         {/* Danger Zone */}

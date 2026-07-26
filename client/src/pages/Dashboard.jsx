@@ -6,8 +6,11 @@ import StatusBadge from '../components/StatusBadge';
 import MetricBar from '../components/MetricBar';
 import ConvictScore from '../components/ConvictScore';
 import UsernamePrompt from '../components/UsernamePrompt';
+import Onboarding from '../components/Onboarding';
 import { freshnessRelative } from '../lib/format';
 import { deadlineStatus, daysUntil } from '../lib/deadline';
+import { hasOnboarded, markOnboarded } from '../lib/onboarding';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 
@@ -35,6 +38,7 @@ function ConvictionPips({ level }) {
 
 function Dashboard() {
     const navigate = useNavigate();
+    const { session } = useAuth();
     const toast = useToast();
     const confirm = useConfirm();
     const [loading, setLoading] = useState(true);
@@ -44,6 +48,29 @@ function Dashboard() {
     const [score, setScore] = useState(50);
     const [resolvedCount, setResolvedCount] = useState(0);
     const [needsUsername, setNeedsUsername] = useState(false);
+    const [showTour, setShowTour] = useState(false);
+
+    const userId = session?.user?.id;
+
+    // First-run walkthrough. Queued behind the username prompt so a brand-new
+    // account isn't shown two modals at once.
+    useEffect(() => {
+        let mounted = true;
+        hasOnboarded(userId).then((done) => {
+            if (mounted && !done) setShowTour(true);
+        });
+        return () => { mounted = false; };
+    }, [userId]);
+
+    const finishTour = async () => {
+        setShowTour(false);
+        await markOnboarded(userId);
+    };
+
+    const finishTourAndCreate = async () => {
+        await finishTour();
+        navigate('/create');
+    };
 
     useEffect(() => {
         let mounted = true;
@@ -163,6 +190,9 @@ function Dashboard() {
         <div className="min-h-screen bg-bg">
             <Navbar />
             {needsUsername && <UsernamePrompt onDone={() => setNeedsUsername(false)} />}
+            {!needsUsername && showTour && (
+                <Onboarding onClose={finishTour} onCreate={finishTourAndCreate} />
+            )}
             <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8">
                 <div className="flex items-end justify-between gap-4 mb-6">
                     <div>
