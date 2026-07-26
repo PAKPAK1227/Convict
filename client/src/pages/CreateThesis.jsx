@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import Navbar from '../components/Navbar';
 import Select from '../components/Select';
 import { isValidTicker } from '../lib/validation';
+import { METRIC_OPTIONS, metricLabel, targetComparator } from '../lib/metrics';
+import { formatNumber } from '../lib/format';
 import { DEADLINE_PRESETS, presetDateISO, daysUntil, formatDeadlineDate } from '../lib/deadline';
 
 const CONVICTION_OPTIONS = [
@@ -22,6 +25,7 @@ const CONVICTION_OPTIONS = [
 function CreateThesis() {
   const navigate = useNavigate();
   const { session } = useAuth();
+  const toast = useToast();
 
   const [ticker, setTicker] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -32,8 +36,40 @@ function CreateThesis() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Targets staged locally, written as `metrics` rows right after the thesis
+  // insert. A thesis with no metric can never be graded, so at least one is
+  // required here rather than left to a second visit to the detail page.
+  const [draftMetrics, setDraftMetrics] = useState([]);
+  const [metricName, setMetricName] = useState('');
+  const [targetValue, setTargetValue] = useState('');
+  const [metricError, setMetricError] = useState('');
+
   const targetDate = deadlinePreset === 'custom' ? customDate : presetDateISO(deadlinePreset);
   const todayISO = new Date().toISOString().slice(0, 10);
+
+  // Mirrors the metrics_unique_per_thesis constraint — one row per metric type.
+  const availableMetrics = METRIC_OPTIONS.filter(
+    (o) => !draftMetrics.some((m) => m.metric_name === o.value)
+  );
+
+  const addDraftMetric = () => {
+    setMetricError('');
+    if (!metricName) {
+      setMetricError('Choose a metric.');
+      return;
+    }
+    if (targetValue === '' || Number.isNaN(Number(targetValue))) {
+      setMetricError('Enter a numeric target value.');
+      return;
+    }
+    setDraftMetrics([...draftMetrics, { metric_name: metricName, target_value: Number(targetValue) }]);
+    setMetricName('');
+    setTargetValue('');
+  };
+
+  const removeDraftMetric = (name) => {
+    setDraftMetrics((prev) => prev.filter((m) => m.metric_name !== name));
+  };
 
   const handleSubmit = async () => {
     setError('');
@@ -59,6 +95,10 @@ function CreateThesis() {
       setError('The deadline must be in the future.');
       return;
     }
+    if (draftMetrics.length === 0) {
+      setError('Add at least one target — without one there is nothing to grade the thesis against.');
+      return;
+    }
 
     const userId = session?.user?.id;
     if (!userId) {
@@ -67,7 +107,7 @@ function CreateThesis() {
     }
 
     setSubmitting(true);
-    const { error: insertError } = await supabase
+    const { data: created, error: insertError } = await supabase
       .from('theses')
       .insert({
         user_id: userId,
@@ -79,14 +119,27 @@ function CreateThesis() {
         // New theses start unevaluated. Set explicitly so the insert satisfies
         // the theses_status_valid CHECK regardless of the column's DB default.
         status: 'Pending',
-      });
-    setSubmitting(false);
+      })
+      .select()
+      .single();
 
     if (insertError) {
+      setSubmitting(false);
       setError(insertError.message);
       return;
     }
-    navigate('/dashboard');
+
+    const { error: metricsError } = await supabase
+      .from('metrics')
+      .insert(draftMetrics.map((m) => ({ ...m, thesis_id: created.id })));
+    setSubmitting(false);
+
+    // The thesis exists either way — send them to it rather than stranding them
+    // on the form, and say so if the targets didn't land.
+    if (metricsError) {
+      toast.error(`Thesis created, but the targets failed to save: ${metricsError.message}`);
+    }
+    navigate(`/thesis/${created.id}`);
   };
 
   const inputClass =
@@ -194,6 +247,75 @@ function CreateThesis() {
             </span>{' '}
             — the verdict locks then.
           </p>
+
+          {/* Targets — collected here so a new thesis is gradable from day one (§3) */}
+          <div className="mb-5 pt-5 border-t border-line">
+            <label className={labelClass}>Targets</label>
+            <p className="text-xs text-ink-3 mb-3">
+              What has to be true for you to be right? Convict grades the thesis against these.{' '}
+              <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
+            </p>
+
+            {draftMetrics.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {draftMetrics.map((m) => (
+                  <div
+                    key={m.metric_name}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5"
+                  >
+                    <span className="font-mono text-xs uppercase tracking-wide text-ink-2">
+                      {metricLabel(m.metric_name)}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-xs tnum text-ink">
+                        {targetComparator(m.metric_name)} {formatNumber(m.target_value)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeDraftMetric(m.metric_name)}
+                        className="text-sm text-ink-3 hover:text-status-broken transition"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {availableMetrics.length > 0 ? (
+              <>
+                <Select
+                  value={metricName}
+                  onChange={setMetricName}
+                  options={availableMetrics}
+                  placeholder="Select a metric…"
+                  className="mb-2"
+                />
+                <input
+                  type="number"
+                  placeholder="Target value"
+                  value={targetValue}
+                  onChange={(e) => setTargetValue(e.target.value)}
+                  className={`${inputClass} mb-2`}
+                />
+                {metricError && (
+                  <p className="text-sm text-status-broken mb-2 flex items-start gap-1.5" role="alert">
+                    <span aria-hidden="true">⚠</span>{metricError}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={addDraftMetric}
+                  className="w-full py-2.5 border border-line text-ink text-sm font-semibold rounded-xl hover:bg-surface-2 transition"
+                >
+                  Add target
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-ink-3">Every available metric is already targeted.</p>
+            )}
+          </div>
 
           {error && (
             <p className="text-sm text-status-broken mb-4 flex items-start gap-1.5" role="alert">
