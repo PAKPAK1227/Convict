@@ -18,17 +18,18 @@ right. Your accuracy over time rolls up into a single trademark number: the
    each metric, rolling them into a per-thesis verdict.
 4. **At the deadline the verdict locks** and moves your **Convict Score**.
 
-### The status system
+### The verdict system
 
-Every thesis resolves to one of three states (color is used *only* here):
+Each metric is graded against its target, and a thesis takes the **worst grade**
+across its metrics. Labels are **provisional while the thesis is live** and become
+**final once it resolves at the deadline** (color is used *only* here):
 
-| Status       | Meaning                                              |
-|--------------|------------------------------------------------------|
-| **On Track** | Meets its target (`≥` target, or `≤` for P/E)        |
-| **Watch**    | Misses the target by **≤ 25%** of the target value   |
-| **Broken**   | Misses by **> 25%**                                  |
+| Grade vs target                      | While live   | Resolved (final) |
+|--------------------------------------|--------------|------------------|
+| meets target (`≥`, or `≤` for P/E)   | **On Track** | **Met**          |
+| misses by **≤ 25%**                  | **Watch**    | **Close**        |
+| misses by **> 25%**                  | **Behind**   | **Broken**       |
 
-A thesis takes the **worst grade** across its metrics (any Broken → Broken).
 Targets show a `≥` / `≤` so the direction is unambiguous (P/E is lower-is-better).
 
 ### The Convict Score (the trademark metric)
@@ -84,8 +85,9 @@ Full derivation and the decision log: [docs/SCORING.md](docs/SCORING.md).
 
 - The Finnhub key **never ships to the browser** — all market-data fetching is
   server-side in the evaluator.
-- All user data is **owner-scoped by RLS**. Profiles are private (no leaderboard
-  yet). The Convict Score is written only by the evaluator.
+- All user data is **owner-scoped by RLS**; profiles are private. The Convict
+  Score is written only by the server-side evaluator — clients can never edit it,
+  and a database trigger restricts the verdict columns to the evaluator alone.
 
 ## Repository layout
 
@@ -98,7 +100,7 @@ client/               React app
   src/lib/             validation, metrics, format, deadline, score (pure, tested)
 data-service/         evaluate_theses.py (grading + scoring), main.py (Finnhub)
 supabase/migrations/  SQL — run these in the Supabase SQL editor (see Setup)
-docs/                 DECISIONS, DESIGN, ROADMAP, SECURITY
+docs/                 DESIGN, DECISIONS, SCORING, SECURITY
 ```
 
 ---
@@ -182,14 +184,7 @@ cd data-service && python -m pytest
 ## Documentation
 
 - **[docs/DESIGN.md](docs/DESIGN.md)** — design system, palettes, typography.
-- **[docs/DECISIONS.md](docs/DECISIONS.md)** — engineering decisions & follow-ups.
-- **[docs/ROADMAP.md](docs/ROADMAP.md)** — deferred work, the score formula, and
-  the Phase 2 social layer (profiles/following/leaderboard).
+- **[docs/SCORING.md](docs/SCORING.md)** — the Convict Score: full derivation and
+  decision log.
+- **[docs/DECISIONS.md](docs/DECISIONS.md)** — engineering decisions.
 - **[docs/SECURITY.md](docs/SECURITY.md)** — security posture.
-
-## Roadmap (high level)
-
-- **Now:** thesis tracking, daily evaluation, deadlines + verdict-locking,
-  persisted Convict Score, profiles with usernames & track record.
-- **Next (Phase 2 — social):** public profiles, following, a feed, and a
-  Convict Score **leaderboard**. Deliberately deferred; requires careful RLS.
