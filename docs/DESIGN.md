@@ -150,8 +150,7 @@ Ranked by impact for *this* product:
 
 1. **Metric progress bars** — each metric card shows a bar of `current` vs
    `target`, filled with the status color. Instantly legible; no reading numbers.
-2. **Status timeline / sparkline** — once `status_history` exists (Phase 2, see
-   `ROADMAP.md`), show a small On-Track/Watch/Broken strip over time per thesis.
+2. **Status timeline / sparkline** — once `status_history` exists, show a small On-Track/Watch/Broken strip over time per thesis.
 3. **Conviction as weight** — render High/Medium/Low conviction as visual weight
    (border thickness, a filled/half/empty pip) rather than just a text label.
 4. **Convict Score dial** — a single headline accuracy gauge on the profile

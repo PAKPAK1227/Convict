@@ -1,6 +1,6 @@
 """Finnhub data access for Convict.
 
-§5 of CONVICT_TODO: this used to be a FastAPI service whose endpoints were never
+This used to be a FastAPI service whose endpoints were never
 deployed. It is only ever imported by evaluate_theses.py, so it is now a plain
 module. Fetching (network) is kept separate from mapping (pure) so the mapping
 logic can be unit-tested without hitting the network.

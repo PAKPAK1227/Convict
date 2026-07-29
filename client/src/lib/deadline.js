@@ -1,7 +1,6 @@
 // Thesis resolution-deadline helpers. Pure functions (no I/O) so they're unit
 // testable. A thesis "resolves" once its target_date has passed; at that point
-// its verdict is final (the actual score-lock lands with the persisted-score
-// backend — see docs/ROADMAP.md §9).
+// its verdict is final.
 
 export const DEADLINE_PRESETS = [
   { value: '1M', label: '1 month', months: 1 },

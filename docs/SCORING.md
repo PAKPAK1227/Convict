@@ -164,7 +164,6 @@ Changing the weights means touching these, in the same commit:
 | `data-service/tests/test_evaluate_theses.py` | Pins the incentive property and the crossover bands. |
 | `client/src/components/Onboarding.jsx` | Step 2 shows the gain/loss table to users. |
 | `README.md` | Public description of the formula. |
-| `docs/ROADMAP.md` | Score summary under §9. |
 | This file | The reasoning. |
 
 The tests are written to pin **incentives, not arithmetic** — they check that

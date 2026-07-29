@@ -8,7 +8,7 @@ const AuthContext = createContext({
 });
 
 /**
- * Centralized auth state (§1 / §4 of CONVICT_TODO).
+ * Centralized auth state.
  *
  * Rather than each page calling getSession() once on mount — which is exactly
  * how the stale-session bug in §1 slipped through — we hold the session in one

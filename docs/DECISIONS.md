@@ -1,7 +1,6 @@
 # Convict — Decisions & Follow-ups
 
-This file records the decisions made while working through §1–§6 of
-`CONVICT_TODO.md`, plus the items that require **your** action (Supabase
+This file records the decisions made building Convict, plus the items that require **your** action (Supabase
 dashboard, GitHub settings, deployment) which cannot be done from the codebase.
 
 ---
