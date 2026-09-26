@@ -46,15 +46,37 @@ def get_quote(ticker):
     return response.json()
 
 
+def get_symbols(exchange="US"):
+    """Every symbol listed on `exchange` (one call; ~30k rows for US)."""
+    url = f"{FINNHUB_BASE}/stock/symbol"
+    params = {"exchange": exchange, "token": FINNHUB_API_KEY}
+    response = requests.get(url, params=params, timeout=60)
+    response.raise_for_status()
+    return response.json()
+
+
+def get_profile(ticker):
+    """Company profile (name, exchange, ...). Empty dict for an unknown symbol."""
+    url = f"{FINNHUB_BASE}/stock/profile2"
+    params = {"symbol": ticker, "token": FINNHUB_API_KEY}
+    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def get_metric(ticker):
+    """Finnhub's raw `metric` object for a ticker (may be empty)."""
+    url = f"{FINNHUB_BASE}/stock/metric"
+    params = {"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY}
+    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json().get("metric", {})
+
+
 def get_fundamentals(ticker):
     """Fetch fundamentals for a ticker and map them to Convict's fields.
 
     Raises on network / HTTP errors so callers can decide how to handle a
     failure (evaluate_theses catches these per-ticker — §5).
     """
-    url = f"{FINNHUB_BASE}/stock/metric"
-    params = {"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY}
-    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    data = response.json()
-    return map_fundamentals(data.get("metric", {}), ticker)
+    return map_fundamentals(get_metric(ticker), ticker)

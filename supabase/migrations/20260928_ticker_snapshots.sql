@@ -18,7 +18,8 @@
 
 create table if not exists public.ticker_snapshots (
   ticker        text primary key check (ticker ~ '^[A-Z]{1,5}$'),
-  company_name  text,
+  listed_name   text,   -- from the symbol list, e.g. 'APPLE INC' (every row)
+  company_name  text,   -- from the company profile, e.g. 'Apple Inc' (universe only)
   security_type text,
   price         numeric,
   price_at      timestamptz,
