@@ -183,9 +183,42 @@ can't restrict columns):
   locks as Void, unscored. A Finnhub failure on the deadline night is retried
   the next night, never voided.
 
-**Still open:** a target that's *already met* when it's set still wins at a
-30-day deadline. Closing that needs a baseline value per target, which is the
-next change (score v2).
+**Follow-up:** a target that's *already met* when it's set could still win at
+a 30-day deadline — closed by §3.8.
+
+### 3.8 Calls whose targets were already met don't score — 2026-09-26
+
+**The hole.** Look up a stock's P/E, set "P/E ≤ 40" while it's at 25, wait 30
+days, collect a win. Nothing was predicted.
+
+**Fix** (`20260927_target_baselines.sql`). On a metric's first successful
+evaluation the evaluator stamps `baseline_value`, `baseline_at` and
+`already_met` (was the target satisfied at the baseline?). All three are
+evaluator-only; editing a target during the 24-hour window clears them so it's
+re-baselined against the new target.
+
+At resolution, if **every metric graded at the deadline** was already met at
+its baseline, the thesis locks with its normal verdict, is marked
+`unscored`, and emits no scoring event — **in either direction**. Decisions:
+
+- **All, not any.** Worst-wins grading already means an easy target next to a
+  real one gains nothing, so only the all-already-met case can be exploited.
+  Excluding on *any* would punish honest users for padding.
+- **Symmetric.** An unscored call doesn't cost points if it later breaks
+  either. It wasn't a prediction; the UI says "won't count", and that has to
+  be true both ways. There's nothing to gain from it, so nothing to exploit.
+- **Benefit of the doubt.** A target that never got a baseline counts as
+  genuine. A baseline that first arrives on the deadline night is the same
+  number being graded, so it's stamped but `already_met` is left unknown.
+- **Not a boldness measure.** "Growth ≥ 5.1% when it's at 5.0%" isn't already
+  met, so it scores in full. Weighting by how far the target is from the
+  baseline is score v2's job; this change records the baseline it needs.
+
+**Known imprecision:** the baseline is taken at the first nightly run, up to
+24h after the user committed. Irrelevant for quarterly fundamentals; P/E can
+drift slightly with the price. Capturing it at creation would need a Supabase
+Edge Function holding the Finnhub key — deferred until something else
+justifies one.
 
 ## 4. Where the numbers are duplicated
 
@@ -197,7 +230,7 @@ Changing the weights means touching these, in the same commit:
 | `data-service/tests/test_evaluate_theses.py` | Pins the incentive property and the crossover bands. |
 | `client/src/components/Onboarding.jsx` | Step 2 shows the gain/loss table to users. |
 | `supabase/migrations/20260926_thesis_integrity_locks.sql` | Edit window (24h) and minimum deadlines (30 / 90 days). |
-| `client/src/lib/lock.js`, `client/src/lib/metrics.js` | Client mirrors of the edit window and minimum deadlines. |
+| `client/src/lib/lock.js`, `client/src/lib/metrics.js` | Client mirrors of the edit window, minimum deadlines and the already-met rule (`allTargetsAlreadyMet` ↔ `counts_toward_score`). |
 | `README.md` | Public description of the formula. |
 | This file | The reasoning. |
 

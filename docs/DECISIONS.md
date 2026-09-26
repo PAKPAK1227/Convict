@@ -285,3 +285,24 @@ Supabase SQL editor and run it once. Until then the UI hides edits after 24h
 but the database would still accept them, and the evaluator's first `Void`
 write fails the `theses_status_valid` check (the run turns red, nothing is
 lost).
+
+---
+
+## Target baselines (2026-09-26)
+
+Reasoning in [SCORING.md §3.8](SCORING.md). Operationally:
+
+- **Schema.** `metrics.baseline_value`, `baseline_at`, `already_met`;
+  `theses.unscored`. All written only by the evaluator — the metrics trigger
+  and `theses_protect_verdict()` are redefined to freeze them for clients.
+- **Evaluator.** Stamps the baseline in the same `update` as `current_value`,
+  on the first run that returns a value. `was_already_met()` and
+  `counts_toward_score()` are the pure pieces, unit-tested; run-level tests
+  cover stamping, never-overwriting, and the resolution outcomes.
+- **Run summary** logs an `unscored` count alongside `void`.
+
+### ⚠️ One-time deploy step
+Run **`supabase/migrations/20260927_target_baselines.sql`** in the Supabase SQL
+editor **before** merging. Otherwise the evaluator's first write of
+`baseline_value` fails, every metric update counts as a write failure and the
+run turns red (nothing is lost; it catches up once the migration runs).

@@ -15,7 +15,7 @@ is enforced in code vs. what only you can do in the Supabase/Vercel dashboards.
 | Server-side validation | `CHECK` constraints on ticker format, metric allow-list, conviction enum, status enum, length limits, non-null target, unique metric-per-thesis | `supabase/migrations/20260723_data_constraints.sql` |
 | Authorization | Canonical RLS policies (select/insert/update/delete scoped to `auth.uid()`; metrics owned via parent thesis) | `supabase/migrations/20260723_rls_policies.sql` |
 | Account deletion | `SECURITY DEFINER delete_user()`, `authenticated`-only, self-scoped | `supabase/migrations/20260723_delete_user.sql` |
-| Score integrity | Theses/targets immutable 24h after creation; server-set `created_at`; evaluator-only `status`, `resolved`, `current_value`; minimum deadlines | `supabase/migrations/20260725_protect_verdict.sql`, `20260926_thesis_integrity_locks.sql` |
+| Score integrity | Theses/targets immutable 24h after creation; server-set `created_at`; evaluator-only `status`, `resolved`, `unscored`, `current_value` and target baselines; minimum deadlines | `supabase/migrations/20260725_protect_verdict.sql`, `20260926_thesis_integrity_locks.sql`, `20260927_target_baselines.sql` |
 | Security headers | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, `Permissions-Policy` | `client/vercel.json` |
 | CSP (report-only) | Content-Security-Policy-Report-Only — logs violations without blocking | `client/vercel.json` |
 | Client resilience | Top-level `ErrorBoundary` (hook point for Sentry) | `client/src/components/ErrorBoundary.jsx` |
