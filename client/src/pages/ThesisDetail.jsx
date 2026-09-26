@@ -7,7 +7,8 @@ import Progress from '../components/Progress';
 import Select from '../components/Select';
 import { METRIC_OPTIONS, metricLabel, targetComparator } from '../lib/metrics';
 import { formatNumber } from '../lib/format';
-import { deadlineStatus } from '../lib/deadline';
+import { deadlineStatus, minDeadlineISO } from '../lib/deadline';
+import { editWindow } from '../lib/lock';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
 
@@ -232,6 +233,16 @@ function ThesisDetail() {
     );
   }
 
+  // Everything below is editable only inside the 24-hour window; the database
+  // refuses changes after that, so the UI stops offering them.
+  const win = editWindow(thesis);
+
+  // A growth/margin target can only be added if the deadline already clears
+  // their 90-day minimum (measured from creation, like the database does).
+  const addableMetrics = METRIC_OPTIONS.filter(
+    (o) => thesis.target_date >= minDeadlineISO([o.value], new Date(thesis.created_at))
+  );
+
   return (
     <div className="min-h-screen bg-bg">
       <Navbar />
@@ -266,11 +277,25 @@ function ThesisDetail() {
               );
             })()}
           </div>
-          <div className="flex gap-2 text-sm shrink-0">
-            {!editingThesis && (
-              <button onClick={startEditThesis} className="px-3 py-1.5 rounded-lg text-ink-2 hover:text-ink hover:bg-surface-2 transition">Edit</button>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            {win.open && (
+              <div className="flex gap-2 text-sm">
+                {!editingThesis && (
+                  <button onClick={startEditThesis} className="px-3 py-1.5 rounded-lg text-ink-2 hover:text-ink hover:bg-surface-2 transition">Edit</button>
+                )}
+                <button onClick={deleteThesis} className="px-3 py-1.5 rounded-lg text-ink-2 hover:text-status-broken hover:bg-surface-2 transition">Delete</button>
+              </div>
             )}
-            <button onClick={deleteThesis} className="px-3 py-1.5 rounded-lg text-ink-2 hover:text-status-broken hover:bg-surface-2 transition">Delete</button>
+            <span
+              className={`text-[11px] font-mono ${win.open ? 'text-status-watch' : 'text-ink-3'}`}
+              title={
+                win.open
+                  ? 'You can fix mistakes until then. After that the thesis, its targets and its deadline are locked.'
+                  : 'Locked 24 hours after creation — a call on the record can no longer be edited or deleted.'
+              }
+            >
+              {win.open ? `◷ ${win.label}` : '🔒 Locked'}
+            </span>
           </div>
         </div>
 
@@ -371,8 +396,12 @@ function ThesisDetail() {
                               ? <><span className="text-ink font-semibold">{formatNumber(metric.current_value)}</span><span className="text-ink-3"> / {targetComparator(metric.metric_name)} {formatNumber(metric.target_value)}</span></>
                               : <span className="text-ink-3" title="Convict pulls this from live market data once a day — it populates on the next evaluation.">◷ awaiting data · target {targetComparator(metric.metric_name)} {formatNumber(metric.target_value)}</span>}
                           </span>
-                          <button onClick={() => startEditMetric(metric)} className="text-ink-3 hover:text-ink">Edit</button>
-                          <button onClick={() => deleteMetric(metric)} className="text-ink-3 hover:text-status-broken">Delete</button>
+                          {win.open && (
+                            <>
+                              <button onClick={() => startEditMetric(metric)} className="text-ink-3 hover:text-ink">Edit</button>
+                              <button onClick={() => deleteMetric(metric)} className="text-ink-3 hover:text-status-broken">Delete</button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -386,13 +415,14 @@ function ThesisDetail() {
             </div>
           )}
 
-          {/* Add metric — dropdown instead of free text (§3) */}
+          {/* Add metric — dropdown instead of free text (§3); only inside the edit window */}
+          {win.open && (
           <div className="mt-5 pt-5 border-t border-line">
             <label className="block text-xs font-medium text-ink-2 mb-2">Add a metric</label>
             <Select
               value={metricName}
               onChange={setMetricName}
-              options={METRIC_OPTIONS}
+              options={addableMetrics}
               placeholder="Select a metric…"
               className="mb-2"
             />
@@ -415,7 +445,14 @@ function ThesisDetail() {
             >
               {addingMetric ? 'Adding...' : 'Add Metric'}
             </button>
+            {addableMetrics.length < METRIC_OPTIONS.length && (
+              <p className="text-xs text-ink-3 mt-2">
+                Growth and margin targets need a deadline at least 90 days after creation, since
+                they only change at earnings reports.
+              </p>
+            )}
           </div>
+          )}
         </div>
       </div>
     </div>

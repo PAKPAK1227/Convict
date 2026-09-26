@@ -8,6 +8,9 @@
  *   Active (in progress)  → On Track / Watch / Behind  (how it's going)
  *   Resolved (final)      → Met / Close / Broken        (how it ended)
  * Colours are identical in both cases.
+ *
+ * Void is set only at resolution, when a thesis had no usable market data (or
+ * no targets): it's locked but not scored, so it wears the neutral colour.
  */
 const META = {
   'On Track': {
@@ -27,6 +30,12 @@ const META = {
   },
 };
 
+const VOID = {
+  glyph: '∅',
+  chip: 'bg-status-pending/10 text-status-pending ring-status-pending/25',
+  dot: 'bg-status-pending',
+};
+
 const PENDING = {
   glyph: '◇',
   chip: 'bg-status-pending/10 text-status-pending ring-status-pending/25',
@@ -38,6 +47,7 @@ const ACTIVE_LABEL = { 'On Track': 'On Track', Watch: 'Watch', Broken: 'Behind' 
 const FINAL_LABEL = { 'On Track': 'Met', Watch: 'Close', Broken: 'Broken' };
 
 export function statusMeta(status) {
+  if (status === 'Void') return VOID;
   return META[status] || PENDING;
 }
 
@@ -45,6 +55,8 @@ function StatusBadge({ status, resolved = false, size = 'sm', className = '' }) 
   const m = statusMeta(status);
   const label = META[status]
     ? (resolved ? FINAL_LABEL[status] : ACTIVE_LABEL[status])
+    : status === 'Void'
+    ? 'Void · not scored'
     : status || 'Pending';
   const pad =
     size === 'lg' ? 'px-3 py-1.5 text-sm gap-2' : 'px-2.5 py-1 text-xs gap-1.5';
