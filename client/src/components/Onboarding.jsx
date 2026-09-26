@@ -129,6 +129,10 @@ const STEPS = [
           Deadlines are at least 30 days out. Growth and margin only change when the company
           reports earnings, so those need at least 90 days.
         </p>
+        <p className="mt-2 text-xs text-ink-3">
+          A target has to be a prediction: if every target is already met on day one, the call
+          won't count toward your score.
+        </p>
       </>
     ),
   },
