@@ -11,12 +11,19 @@ right. Your accuracy over time rolls up into a single trademark number: the
 ## What it does
 
 1. **Write a thesis** on a stock — a claim, a **conviction level** (High / Medium
-   / Low), and a **resolution deadline** (the date it's judged by).
+   / Low), and a **resolution deadline** (the date it's judged by) at least 30
+   days out, or 90 for revenue growth / profit margin, which only change at
+   earnings reports.
 2. **Set metric targets** that would prove it — P/E ratio, revenue growth, or
    profit margin, each with a target value.
 3. **Convict evaluates it daily** against live market data (Finnhub) and grades
    each metric, rolling them into a per-thesis verdict.
 4. **At the deadline the verdict locks** and moves your **Convict Score**.
+
+You get **24 hours** after creating a thesis to fix mistakes. After that the
+thesis, its conviction, its targets and its deadline are locked — it can't be
+edited or deleted, so a losing call can't be quietly reshaped or removed. The
+database enforces this, not just the UI.
 
 ### The verdict system
 
@@ -31,6 +38,9 @@ across its metrics. Labels are **provisional while the thesis is live** and beco
 | misses by **> 25%**                  | **Behind**   | **Broken**       |
 
 Targets show a `≥` / `≤` so the direction is unambiguous (P/E is lower-is-better).
+
+A thesis that reaches its deadline with **no usable market data** (or no targets)
+locks as **Void** and isn't scored in either direction.
 
 ### The Convict Score (the trademark metric)
 
@@ -118,6 +128,9 @@ Paste each file and run once, **in this order**:
 5. `supabase/migrations/20260724_convict_score.sql`
 6. `supabase/migrations/20260724_profiles_identity.sql`
 7. `supabase/migrations/20260725_protect_verdict.sql`
+8. `supabase/migrations/20260726_evaluator_heartbeat.sql`
+9. `supabase/migrations/20260726_onboarding.sql`
+10. `supabase/migrations/20260926_thesis_integrity_locks.sql`
 
 (If a table already has rows that violate a new CHECK, either clean them first or
 append `NOT VALID` to that constraint — see the notes inside each file.)
