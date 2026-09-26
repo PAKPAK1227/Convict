@@ -6,9 +6,9 @@ import { useToast } from '../context/ToastContext';
 import Navbar from '../components/Navbar';
 import Select from '../components/Select';
 import { isValidTicker } from '../lib/validation';
-import { METRIC_OPTIONS, metricLabel, targetComparator } from '../lib/metrics';
+import { METRIC_OPTIONS, EARNINGS_METRICS, metricLabel, targetComparator, minDeadlineDays } from '../lib/metrics';
 import { formatNumber } from '../lib/format';
-import { DEADLINE_PRESETS, presetDateISO, daysUntil, formatDeadlineDate } from '../lib/deadline';
+import { DEADLINE_PRESETS, presetDateISO, minDeadlineISO, deadlineError, formatDeadlineDate } from '../lib/deadline';
 
 const CONVICTION_OPTIONS = [
   { value: 'High', label: 'High conviction' },
@@ -45,7 +45,12 @@ function CreateThesis() {
   const [metricError, setMetricError] = useState('');
 
   const targetDate = deadlinePreset === 'custom' ? customDate : presetDateISO(deadlinePreset);
-  const todayISO = new Date().toISOString().slice(0, 10);
+
+  // The earliest allowed deadline depends on the targets: 30 days, or 90 once a
+  // growth/margin target is added (the database enforces the same rule).
+  const draftNames = draftMetrics.map((m) => m.metric_name);
+  const minDays = minDeadlineDays(draftNames);
+  const minDate = minDeadlineISO(draftNames);
 
   // Mirrors the metrics_unique_per_thesis constraint — one row per metric type.
   const availableMetrics = METRIC_OPTIONS.filter(
@@ -63,6 +68,12 @@ function CreateThesis() {
       return;
     }
     setDraftMetrics([...draftMetrics, { metric_name: metricName, target_value: Number(targetValue) }]);
+    // Growth/margin need a 90-day deadline; move a 1-month preset out of the way
+    // rather than leaving a selected chip that can't be submitted.
+    if (EARNINGS_METRICS.has(metricName) && deadlinePreset === '1M') {
+      setDeadlinePreset('3M');
+      toast.show('Deadline moved to 3 months — growth and margin targets need at least 90 days.');
+    }
     setMetricName('');
     setTargetValue('');
   };
@@ -87,16 +98,13 @@ function CreateThesis() {
       setError('Write your thesis before saving.');
       return;
     }
-    if (!targetDate) {
-      setError('Choose a resolution deadline.');
-      return;
-    }
-    if (daysUntil(targetDate) < 0) {
-      setError('The deadline must be in the future.');
-      return;
-    }
     if (draftMetrics.length === 0) {
       setError('Add at least one target — without one there is nothing to grade the thesis against.');
+      return;
+    }
+    const dlError = deadlineError(targetDate, draftNames);
+    if (dlError) {
+      setError(dlError);
       return;
     }
 
@@ -202,12 +210,15 @@ function CreateThesis() {
           <div className="flex flex-wrap gap-2 mb-2">
             {DEADLINE_PRESETS.map((p) => {
               const activeChip = deadlinePreset === p.value;
+              const tooShort = p.days < minDays;
               return (
                 <button
                   key={p.value}
                   type="button"
                   onClick={() => setDeadlinePreset(p.value)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
+                  disabled={tooShort}
+                  title={tooShort ? `Growth and margin targets need at least ${minDays} days.` : undefined}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition disabled:opacity-40 disabled:cursor-not-allowed ${
                     activeChip
                       ? 'bg-brand text-brand-fg border-brand'
                       : 'border-line text-ink-2 hover:text-ink hover:bg-surface-2'
@@ -234,7 +245,7 @@ function CreateThesis() {
             <input
               type="date"
               value={customDate}
-              min={todayISO}
+              min={minDate}
               onChange={(e) => setCustomDate(e.target.value)}
               className={`${inputClass} mb-2`}
             />
@@ -245,7 +256,7 @@ function CreateThesis() {
             <span className="text-ink-2">
               {targetDate ? formatDeadlineDate(targetDate) : 'a date you pick'}
             </span>{' '}
-            — the verdict locks then.
+            — the verdict locks then. At least {minDays} days out.
           </p>
 
           {/* Targets — collected here so a new thesis is gradable from day one (§3) */}
@@ -299,6 +310,13 @@ function CreateThesis() {
                   onChange={(e) => setTargetValue(e.target.value)}
                   className={`${inputClass} mb-2`}
                 />
+                {EARNINGS_METRICS.has(metricName) && (
+                  <p className="text-xs text-ink-3 mb-2">
+                    This figure only changes when the company reports earnings (about every 3
+                    months), so the deadline must be at least 90 days out — pick one after the
+                    next report.
+                  </p>
+                )}
                 {metricError && (
                   <p className="text-sm text-status-broken mb-2 flex items-start gap-1.5" role="alert">
                     <span aria-hidden="true">⚠</span>{metricError}
@@ -322,6 +340,11 @@ function CreateThesis() {
               <span aria-hidden="true">⚠</span>{error}
             </p>
           )}
+
+          <p className="text-xs text-ink-3 mb-4">
+            You'll have 24 hours to fix mistakes. After that the thesis, its conviction, its
+            targets and its deadline are locked — it can't be edited or deleted.
+          </p>
 
           <button
             onClick={handleSubmit}

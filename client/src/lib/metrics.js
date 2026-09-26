@@ -21,6 +21,21 @@ export function targetComparator(name) {
   return LOWER_IS_BETTER.has(name) ? '≤' : '≥';
 }
 
+// Revenue growth and profit margin are trailing-twelve-month figures that only
+// change when the company reports earnings (~every 91 days). A shorter window
+// usually contains no report, so the outcome would be fixed the moment it was
+// set. Mirrors public.min_deadline_days() in 20260926_thesis_integrity_locks.sql.
+export const EARNINGS_METRICS = new Set(['revenue_growth', 'profit_margin']);
+export const MIN_DEADLINE_DAYS = 30;
+export const MIN_EARNINGS_DEADLINE_DAYS = 90;
+
+/** Minimum days from creation to deadline for a thesis with these metrics. */
+export function minDeadlineDays(metricNames = []) {
+  return metricNames.some((n) => EARNINGS_METRICS.has(n))
+    ? MIN_EARNINGS_DEADLINE_DAYS
+    : MIN_DEADLINE_DAYS;
+}
+
 export function getStatusColor(status) {
   if (status === 'On Track') return 'bg-green-500/10 text-green-400';
   if (status === 'Watch') return 'bg-yellow-500/10 text-yellow-400';
