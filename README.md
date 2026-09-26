@@ -98,7 +98,10 @@ Full derivation and the decision log: [docs/SCORING.md](docs/SCORING.md).
 ```
 
 - The Finnhub key **never ships to the browser** — all market-data fetching is
-  server-side in the evaluator.
+  server-side. A second nightly job (`refresh_snapshots.py`, 04:00 UTC) writes
+  the US symbol list and, for the S&P 500 plus every tracked ticker, the last
+  close, 52-week range and company name into `ticker_snapshots`; the create
+  form reads that table, so users typing a ticker never call Finnhub.
 - All user data is **owner-scoped by RLS**; profiles are private. The Convict
   Score is written only by the server-side evaluator — clients can never edit it,
   and a database trigger restricts the verdict columns to the evaluator alone.
@@ -136,6 +139,7 @@ Paste each file and run once, **in this order**:
 9. `supabase/migrations/20260726_onboarding.sql`
 10. `supabase/migrations/20260926_thesis_integrity_locks.sql`
 11. `supabase/migrations/20260927_target_baselines.sql`
+12. `supabase/migrations/20260928_ticker_snapshots.sql`
 
 (If a table already has rows that violate a new CHECK, either clean them first or
 append `NOT VALID` to that constraint — see the notes inside each file.)
@@ -195,7 +199,10 @@ cd data-service && python -m pytest
   App*. `client/vercel.json` rewrites all routes to `index.html` so deep links
   don't 404. Add the production URL to the Supabase redirect allow-list (step 2).
 - **Evaluator → GitHub Actions:** a scheduled workflow runs
-  `data-service/evaluate_theses.py` daily with the secrets from step 3.
+  `data-service/evaluate_theses.py` daily with the secrets from step 3, and
+  `refresh-snapshots.yml` runs `refresh_snapshots.py` daily with the same
+  secrets. Trigger the snapshot workflow once by hand (Actions → Refresh Ticker
+  Snapshots → Run workflow) after deploying so the ticker panel has data.
 
 ---
 

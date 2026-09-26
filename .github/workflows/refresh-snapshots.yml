@@ -1,8 +1,16 @@
-name: Evaluate Theses
+# Refreshes public.ticker_snapshots (price, 52-week range, company names, the
+# US symbol list) for the create form. Separate from evaluate-theses.yml on
+# purpose: a snapshot problem must never delay or fail grading.
+#
+# ~500 tickers x 2 calls, throttled to the Finnhub free tier (60/min), takes
+# roughly 20 minutes — longer on the first run, which also fetches company
+# names once per ticker.
+
+name: Refresh Ticker Snapshots
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 4 * * *' # 04:00 UTC — after US close, before the 06:00 evaluator
   workflow_dispatch:
 
 # Shared with the other Finnhub workflow: GitHub runs them one at a time, so
@@ -12,8 +20,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  evaluate:
+  refresh:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -27,10 +36,10 @@ jobs:
         working-directory: data-service
         run: pip install -r requirements.txt
 
-      - name: Run evaluation script
+      - name: Refresh snapshots
         working-directory: data-service
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-        run: python evaluate_theses.py
+        run: python refresh_snapshots.py

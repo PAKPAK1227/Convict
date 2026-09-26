@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import Navbar from '../components/Navbar';
 import Select from '../components/Select';
+import TickerPanel from '../components/TickerPanel';
+import useTickerSnapshot from '../hooks/useTickerSnapshot';
+import { snapshotName } from '../lib/ticker';
 import { isValidTicker } from '../lib/validation';
 import { METRIC_OPTIONS, EARNINGS_METRICS, metricLabel, targetComparator, minDeadlineDays } from '../lib/metrics';
 import { formatNumber } from '../lib/format';
@@ -45,6 +48,23 @@ function CreateThesis() {
   const [metricError, setMetricError] = useState('');
 
   const targetDate = deadlinePreset === 'custom' ? customDate : presetDateISO(deadlinePreset);
+
+  // Market context from the nightly snapshot table (never a live API call).
+  const lookup = useTickerSnapshot(ticker);
+
+  // Fill the company name from the lookup, but never overwrite something the
+  // user typed themselves — only a blank field or our own previous fill.
+  const autoName = useRef('');
+  useEffect(() => {
+    if (lookup.state !== 'found') return;
+    const name = snapshotName(lookup.row);
+    if (!name) return;
+    setCompanyName((current) => {
+      if (current.trim() && current !== autoName.current) return current;
+      autoName.current = name;
+      return name;
+    });
+  }, [lookup]);
 
   // The earliest allowed deadline depends on the targets: 30 days, or 90 once a
   // growth/margin target is added (the database enforces the same rule).
@@ -88,6 +108,10 @@ function CreateThesis() {
     const normalizedTicker = ticker.trim().toUpperCase();
     if (!isValidTicker(normalizedTicker)) {
       setError('Enter a valid ticker — 1 to 5 letters (e.g. NVDA).');
+      return;
+    }
+    if (lookup.state === 'unknown') {
+      setError(`We can't find ${normalizedTicker} among US-listed stocks. Check the symbol.`);
       return;
     }
     if (!companyName.trim()) {
@@ -179,6 +203,7 @@ function CreateThesis() {
             maxLength={5}
             className={`${inputClass} mb-4 font-mono tracking-wider uppercase`}
           />
+          <TickerPanel lookup={lookup} />
 
           <label className={labelClass}>Company name</label>
           <input
