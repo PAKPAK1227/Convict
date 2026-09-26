@@ -306,3 +306,41 @@ Run **`supabase/migrations/20260927_target_baselines.sql`** in the Supabase SQL
 editor **before** merging. Otherwise the evaluator's first write of
 `baseline_value` fails, every metric update counts as a write failure and the
 run turns red (nothing is lost; it catches up once the migration runs).
+
+---
+
+## Ticker snapshots instead of a live lookup API (2026-09-26)
+
+The create form shows a ticker's company name, last close and 52-week range,
+and rejects symbols that don't exist.
+
+**Why nightly snapshots and not a live endpoint.** A live lookup would need a
+server-side proxy (Supabase Edge Function) holding the Finnhub key, a cache and
+per-user throttling — and every keystroke would draw on the single free-tier
+budget of 60 calls/minute shared by all users. Instead `refresh_snapshots.py`
+writes everything to `ticker_snapshots` once a night and the browser only reads
+Supabase. No new deploy target, no key anywhere new, zero API calls while users
+type. The data is "as of last close", which is also the price grading uses.
+A live Edge Function can still be layered on later if the one-day delay ever
+matters.
+
+- **Universe.** Full data for the S&P 500 (`data-service/universe/sp500.txt`,
+  from Wikipedia — refresh it when membership changes) plus every ticker with
+  an open thesis. Every other US symbol gets a row from the symbol list only
+  (name, no price), which is enough to validate it exists.
+- **Budget.** ~500 tickers × 2 calls throttled to 1.1s ≈ 20 minutes nightly;
+  company names are fetched once per ticker, ever.
+- **Failure policy.** One ticker failing doesn't stop the run. The run fails
+  (and emails) only if the symbol list fails or >10% of tickers do. The form
+  treats a missing row as "unknown ticker" only when the table is populated —
+  if the table is empty or the read fails, it lets the user continue.
+- **Gotcha, fixed in code.** supabase-py sends the union of a batch's keys as
+  PostgREST's `columns`, and PostgREST writes NULL for any listed column a row
+  omits. Batches are therefore grouped by row shape (`upsert_batches`), or a
+  row without `company_name` would wipe a stored one.
+
+### ⚠️ One-time deploy steps
+1. Run **`supabase/migrations/20260928_ticker_snapshots.sql`** in the Supabase
+   SQL editor.
+2. After merging, run **Actions → Refresh Ticker Snapshots → Run workflow**
+   once so the panel has data before the first scheduled run.
