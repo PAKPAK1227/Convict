@@ -10,6 +10,7 @@ import Onboarding from '../components/Onboarding';
 import { freshnessRelative } from '../lib/format';
 import { deadlineStatus, daysUntil } from '../lib/deadline';
 import { hasOnboarded, markOnboarded } from '../lib/onboarding';
+import { editWindow } from '../lib/lock';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -267,6 +268,7 @@ function Dashboard() {
                             const metrics = metricsByThesis[thesis.id] || [];
                             const updated = freshnessRelative(thesis);
                             const dl = deadlineStatus(thesis.target_date);
+                            const win = editWindow(thesis);
                             return (
                                 <div
                                     key={thesis.id}
@@ -291,13 +293,19 @@ function Dashboard() {
 
                                     <div className="mt-5 pt-4 border-t border-line flex items-center justify-between">
                                         <ConvictionPips level={thesis.conviction_level} />
-                                        <button
-                                            onClick={(e) => handleDelete(e, thesis)}
-                                            disabled={deletingId === thesis.id}
-                                            className="text-xs text-ink-3 hover:text-status-broken disabled:opacity-50 transition"
-                                        >
-                                            {deletingId === thesis.id ? 'Deleting...' : 'Delete'}
-                                        </button>
+                                        {/* Deletable only inside the 24h edit window; after that the call is on the record. */}
+                                        {win.open && (
+                                            <span className="flex items-center gap-3">
+                                                <span className="text-[11px] font-mono text-status-watch">◷ {win.label}</span>
+                                                <button
+                                                    onClick={(e) => handleDelete(e, thesis)}
+                                                    disabled={deletingId === thesis.id}
+                                                    className="text-xs text-ink-3 hover:text-status-broken disabled:opacity-50 transition"
+                                                >
+                                                    {deletingId === thesis.id ? 'Deleting...' : 'Delete'}
+                                                </button>
+                                            </span>
+                                        )}
                                     </div>
 
                                     <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-ink-3">

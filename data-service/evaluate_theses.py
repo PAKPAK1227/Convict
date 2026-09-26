@@ -103,7 +103,8 @@ def derive_thesis_status(metric_statuses):
     """Roll per-metric statuses up to a single thesis status.
 
     Worst-wins: any Broken -> Broken; else any Watch -> Watch; else any
-    On Track -> On Track; otherwise (only Unknown / none) -> Watch.
+    On Track -> On Track; otherwise (only Unknown / none) -> Pending, i.e.
+    there is no usable market data to grade against yet.
     """
     if "Broken" in metric_statuses:
         return "Broken"
@@ -111,7 +112,18 @@ def derive_thesis_status(metric_statuses):
         return "Watch"
     if "On Track" in metric_statuses:
         return "On Track"
-    return "Watch"
+    return "Pending"
+
+
+# A thesis that reaches its deadline without a single gradeable metric is
+# locked as Void and never scored. Grading it would penalise (or reward) the
+# user for a gap in market data they had no control over.
+VOID = "Void"
+
+
+def final_status(live_status):
+    """The status a thesis locks to at its deadline, given its live status."""
+    return VOID if live_status == "Pending" else live_status
 
 
 # --------------------------------------------------------------------------- #
@@ -230,11 +242,13 @@ def evaluate_all_metrics():
     failed_tickers = set()
     thesis_statuses = {}
     thesis_meta = {}
+    theses_with_metrics = set()
     stats = {
         "metrics_seen": len(metrics),
         "metrics_updated": 0,
         "theses_updated": 0,
         "theses_resolved": 0,
+        "theses_voided": 0,
         "scores_updated": 0,
         "write_failures": 0,
     }
@@ -246,6 +260,7 @@ def evaluate_all_metrics():
         if not thesis_id or not ticker:
             logger.warning("Skipping metric %s — no linked thesis", metric.get("id"))
             continue
+        theses_with_metrics.add(thesis_id)
 
         # Already resolved: the verdict is locked. Skip fetching/updating entirely
         # (this also spares Finnhub calls as theses age out — see rate-limit note).
@@ -296,20 +311,24 @@ def evaluate_all_metrics():
         meta = thesis_meta.get(thesis_id, {})
 
         if is_past_deadline(meta.get("target_date"), today):
+            locked = final_status(new_status)
             try:
                 supabase.table("theses").update(
-                    {"status": new_status, "resolved": True}
+                    {"status": locked, "resolved": True}
                 ).eq("id", thesis_id).execute()
-                logger.info("Thesis %s RESOLVED as %s (verdict locked)", thesis_id, new_status)
+                logger.info("Thesis %s RESOLVED as %s (verdict locked)", thesis_id, locked)
                 stats["theses_resolved"] += 1
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to resolve thesis %s: %s", thesis_id, exc)
                 stats["write_failures"] += 1
                 continue
+            if locked == VOID:
+                stats["theses_voided"] += 1
+                continue  # no market data -> no scoring event
             user_id = meta.get("user_id")
             if user_id:
                 resolutions_by_user.setdefault(user_id, []).append(
-                    (new_status, meta.get("conviction_level"))
+                    (locked, meta.get("conviction_level"))
                 )
         else:
             try:
@@ -321,6 +340,8 @@ def evaluate_all_metrics():
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to update thesis %s: %s", thesis_id, exc)
                 stats["write_failures"] += 1
+
+    _void_theses_without_metrics(supabase, theses_with_metrics, today, stats)
 
     # Apply Convict Score changes one user at a time — damping depends on the
     # running score, so fold each user's events sequentially from their stored value.
@@ -335,6 +356,40 @@ def evaluate_all_metrics():
         logger.warning("Completed with %d failed ticker(s): %s",
                        len(failed_tickers), ", ".join(sorted(failed_tickers)))
     return stats
+
+
+def _void_theses_without_metrics(supabase, theses_with_metrics, today, stats):
+    """Lock past-deadline theses that have no targets at all as Void.
+
+    They never appear in the metrics query, so without this pass they would sit
+    unresolved forever. A thesis that *has* targets but whose ticker failed to
+    fetch tonight is deliberately left alone — it's retried on the next run.
+    """
+    try:
+        open_theses = supabase.table("theses").select(
+            "id, target_date"
+        ).eq("resolved", False).execute().data or []
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to list open theses: %s", exc)
+        stats["write_failures"] += 1  # counted so the run goes red
+        return
+
+    for thesis in open_theses:
+        thesis_id = thesis.get("id")
+        if thesis_id in theses_with_metrics:
+            continue
+        if not is_past_deadline(thesis.get("target_date"), today):
+            continue
+        try:
+            supabase.table("theses").update(
+                {"status": VOID, "resolved": True}
+            ).eq("id", thesis_id).execute()
+            logger.info("Thesis %s RESOLVED as Void (no targets)", thesis_id)
+            stats["theses_resolved"] += 1
+            stats["theses_voided"] += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to void thesis %s: %s", thesis_id, exc)
+            stats["write_failures"] += 1
 
 
 def _apply_score_events(supabase, user_id, events):
@@ -427,9 +482,10 @@ def main():
 
     logger.info(
         "Run summary: %d metric(s) seen, %d updated, %d thesis update(s), "
-        "%d resolved, %d score(s) written, %d failure(s)",
+        "%d resolved (%d void), %d score(s) written, %d failure(s)",
         stats["metrics_seen"], stats["metrics_updated"], stats["theses_updated"],
-        stats["theses_resolved"], stats["scores_updated"], failures,
+        stats["theses_resolved"], stats["theses_voided"], stats["scores_updated"],
+        failures,
     )
 
     write_heartbeat(get_supabase(), stats, ok)

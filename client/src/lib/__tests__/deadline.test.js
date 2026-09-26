@@ -1,7 +1,9 @@
 import {
   DEADLINE_PRESETS,
-  addMonthsISO,
+  addDaysISO,
   presetDateISO,
+  minDeadlineISO,
+  deadlineError,
   daysUntil,
   deadlineStatus,
   formatDeadlineDate,
@@ -25,8 +27,50 @@ describe('presets', () => {
     expect(presetDateISO('nope', NOW)).toBe('');
   });
 
-  test('addMonthsISO advances the month', () => {
-    expect(addMonthsISO(6, NOW)).toBe('2027-01-24');
+  test('presets are fixed day counts, so "1 month" is always 30 days', () => {
+    expect(DEADLINE_PRESETS.map((p) => p.days)).toEqual([30, 90, 180, 365]);
+    expect(presetDateISO('1M', new Date('2027-02-01T12:00:00Z'))).toBe('2027-03-03');
+  });
+});
+
+describe('addDaysISO', () => {
+  test('counts days from the UTC date, across month and year ends', () => {
+    expect(addDaysISO(30, new Date('2026-07-24T12:00:00Z'))).toBe('2026-08-23');
+    expect(addDaysISO(10, new Date('2026-12-28T12:00:00Z'))).toBe('2027-01-07');
+  });
+
+  test('uses the UTC day even late in the evening in the Americas', () => {
+    // 23:30 in New York on Jul 24 is already Jul 25 in UTC.
+    expect(addDaysISO(0, new Date('2026-07-25T03:30:00Z'))).toBe('2026-07-25');
+  });
+});
+
+describe('minimum deadline', () => {
+  const FROM = new Date('2026-07-24T12:00:00Z');
+
+  test('30 days for P/E, 90 once an earnings metric is involved', () => {
+    expect(minDeadlineISO(['pe_ratio'], FROM)).toBe('2026-08-23');
+    expect(minDeadlineISO([], FROM)).toBe('2026-08-23');
+    expect(minDeadlineISO(['pe_ratio', 'profit_margin'], FROM)).toBe('2026-10-22');
+    expect(minDeadlineISO(['revenue_growth'], FROM)).toBe('2026-10-22');
+  });
+
+  test('deadlineError accepts the minimum and rejects a day earlier', () => {
+    expect(deadlineError('2026-08-23', ['pe_ratio'], FROM)).toBe('');
+    expect(deadlineError('2026-08-22', ['pe_ratio'], FROM)).toMatch(/at least 30 days/);
+    expect(deadlineError('2026-10-22', ['revenue_growth'], FROM)).toBe('');
+    expect(deadlineError('2026-10-21', ['revenue_growth'], FROM)).toMatch(/earnings.*90 days/);
+  });
+
+  test('deadlineError requires a date', () => {
+    expect(deadlineError('', ['pe_ratio'], FROM)).toMatch(/choose/i);
+  });
+
+  test('every preset except 1 month clears the earnings minimum', () => {
+    const ok = DEADLINE_PRESETS.filter(
+      (p) => deadlineError(presetDateISO(p.value, FROM), ['profit_margin'], FROM) === ''
+    ).map((p) => p.value);
+    expect(ok).toEqual(['3M', '6M', '1Y']);
   });
 });
 

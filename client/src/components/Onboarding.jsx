@@ -56,6 +56,10 @@ const STEPS = [
           and pick a date. On that date the call locks — right or wrong, permanently on your record.
         </p>
         <p className="mt-3">
+          You get <span className="text-ink font-medium">24 hours</span> to fix typos. After that the
+          call is locked — no edits, no deleting — so it means something.
+        </p>
+        <p className="mt-3">
           Everything starts from <span className="text-ink font-medium">+ New Thesis</span> at the
           top of your dashboard. Four short steps and you'll know what each field is for.
         </p>
@@ -121,6 +125,10 @@ const STEPS = [
             </Row>
           ))}
         </div>
+        <p className="mt-3 text-xs text-ink-3">
+          Deadlines are at least 30 days out. Growth and margin only change when the company
+          reports earnings, so those need at least 90 days.
+        </p>
       </>
     ),
   },
@@ -153,6 +161,9 @@ const STEPS = [
           <span className="text-status-ok font-medium">Met</span> /{' '}
           <span className="text-status-watch font-medium">Close</span> /{' '}
           <span className="text-status-broken font-medium">Broken</span> — 🔒 and no longer editable.
+        </p>
+        <p className="mt-3 text-xs text-ink-3">
+          If market data never arrives for a target, the call is voided and doesn't count either way.
         </p>
       </>
     ),

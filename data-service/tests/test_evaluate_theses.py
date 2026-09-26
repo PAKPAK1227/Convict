@@ -7,6 +7,7 @@ from evaluate_theses import (
     apply_resolution,
     derive_thesis_status,
     evaluate_metric,
+    final_status,
     is_past_deadline,
     normalize_metric_name,
     score_delta,
@@ -99,8 +100,25 @@ def test_thesis_all_on_track():
     assert derive_thesis_status(["On Track", "On Track"]) == "On Track"
 
 
-def test_thesis_only_unknown_defaults_to_watch():
-    assert derive_thesis_status(["Unknown", "Unknown"]) == "Watch"
+def test_thesis_with_no_usable_data_is_pending():
+    # No gradeable metric is "no data yet", not a near-miss.
+    assert derive_thesis_status(["Unknown", "Unknown"]) == "Pending"
+    assert derive_thesis_status([]) == "Pending"
+
+
+# --- final_status ---------------------------------------------------------- #
+
+def test_no_data_at_the_deadline_locks_as_void():
+    assert final_status("Pending") == "Void"
+
+
+def test_graded_statuses_lock_unchanged():
+    for status in ("On Track", "Watch", "Broken"):
+        assert final_status(status) == status
+
+
+def test_void_never_scores():
+    assert score_delta(50.0, "Void", "High") == 0.0
 
 
 def test_thesis_on_track_ignores_unknown():

@@ -252,3 +252,36 @@ time). Revisit when reports start arriving from users who can't be messaged
 directly. The gap it would close — Supabase call failures at the
 `console.error` sites in `Dashboard`/`ThesisDetail`/`CreateThesis`/`Profile`
 currently die with the tab — is real but not yet urgent.
+
+---
+
+## Thesis integrity locks (2026-09-26)
+
+A thesis is now a commitment, not a draft. Full reasoning in
+[SCORING.md §3.7](SCORING.md); the operational side:
+
+- **Rules.** Theses and their targets can be edited or deleted only within 24
+  hours of creation. Deadlines must be ≥ 30 days after creation, ≥ 90 with a
+  revenue-growth or profit-margin target. `created_at` and
+  `metrics.current_value` are server-owned. The evaluator (service key) is
+  exempt from all of it.
+- **Where.** Triggers in `20260926_thesis_integrity_locks.sql`. They *raise*
+  rather than silently ignore a change, so the client can show why. The UI
+  mirrors the rules (`lib/lock.js`, `minDeadlineDays` in `lib/metrics.js`) but
+  is not what enforces them.
+- **Account deletion.** `delete_user()` is redefined to set a
+  transaction-local flag (`convict.account_deletion`) that the triggers honour,
+  so users can still delete an account full of locked theses. Clients can't
+  set arbitrary settings through PostgREST.
+- **Void.** New `theses.status` value for a thesis that reaches its deadline
+  with no usable market data or no targets. Not scored. The heartbeat table has
+  no column for it; the run summary log reports the count.
+- **Time zones.** Minimum deadlines are counted from the UTC creation date, in
+  the database and the form alike, matching the evaluator's UTC day.
+
+### ⚠️ One-time deploy step
+Paste **`supabase/migrations/20260926_thesis_integrity_locks.sql`** into the
+Supabase SQL editor and run it once. Until then the UI hides edits after 24h
+but the database would still accept them, and the evaluator's first `Void`
+write fails the `theses_status_valid` check (the run turns red, nothing is
+lost).

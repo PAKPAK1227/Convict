@@ -2,12 +2,18 @@
 // testable. A thesis "resolves" once its target_date has passed; at that point
 // its verdict is final.
 
+import { minDeadlineDays, MIN_EARNINGS_DEADLINE_DAYS } from './metrics';
+
+// Presets are fixed day counts, not calendar months: the minimum deadline is a
+// flat 30 days (see minDeadlineDays), and "one month" from Feb 1 is only 28.
 export const DEADLINE_PRESETS = [
-  { value: '1M', label: '1 month', months: 1 },
-  { value: '3M', label: '3 months', months: 3 },
-  { value: '6M', label: '6 months', months: 6 },
-  { value: '1Y', label: '1 year', months: 12 },
+  { value: '1M', label: '1 month', days: 30 },
+  { value: '3M', label: '3 months', days: 90 },
+  { value: '6M', label: '6 months', days: 180 },
+  { value: '1Y', label: '1 year', days: 365 },
 ];
+
+const DAY_MS = 86400000;
 
 // Parse a yyyy-mm-dd string as a LOCAL date (new Date('yyyy-mm-dd') is UTC,
 // which drifts a day in negative-offset timezones). Other inputs pass through.
@@ -25,20 +31,36 @@ const toDateOnly = (d) => {
   return x;
 };
 
-/** ISO yyyy-mm-dd for `months` from `from` (local date). */
-export function addMonthsISO(months, from = new Date()) {
-  const d = new Date(from);
-  d.setMonth(d.getMonth() + months);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+/**
+ * ISO yyyy-mm-dd for `days` after `from`'s UTC date. UTC on purpose: the
+ * database checks the minimum deadline against the UTC creation date, and the
+ * evaluator resolves on UTC days, so the form must count the same way.
+ */
+export function addDaysISO(days, from = new Date()) {
+  const base = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  return new Date(base + days * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** ISO date for a preset value ('1M'|'3M'|'6M'|'1Y'), or '' if unknown. */
 export function presetDateISO(value, from = new Date()) {
   const p = DEADLINE_PRESETS.find((x) => x.value === value);
-  return p ? addMonthsISO(p.months, from) : '';
+  return p ? addDaysISO(p.days, from) : '';
+}
+
+/** Earliest allowed deadline for a new thesis with these metrics. */
+export function minDeadlineISO(metricNames = [], from = new Date()) {
+  return addDaysISO(minDeadlineDays(metricNames), from);
+}
+
+/** Why a deadline isn't allowed for these metrics, or '' if it is. */
+export function deadlineError(targetDate, metricNames = [], from = new Date()) {
+  if (!targetDate) return 'Choose a resolution deadline.';
+  // yyyy-mm-dd strings compare correctly as plain strings.
+  if (targetDate >= minDeadlineISO(metricNames, from)) return '';
+  const days = minDeadlineDays(metricNames);
+  return days === MIN_EARNINGS_DEADLINE_DAYS
+    ? `Revenue growth and profit margin only change when the company reports earnings, so the deadline must be at least ${days} days out.`
+    : `The deadline must be at least ${days} days out.`;
 }
 
 /** Whole days until targetDate: >0 future, 0 today, <0 past. null if invalid. */

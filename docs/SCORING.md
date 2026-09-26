@@ -52,7 +52,9 @@ A near-miss (`Watch` → shown as **Close**) costs `−0.5 × LOSS_WEIGHT`, so �
 −0.5 / −0.35 by conviction.
 
 Unknown or Pending statuses score **zero** — an unevaluated thesis never moves
-the score in either direction.
+the score in either direction. A thesis that reaches its deadline with no
+usable market data locks as **Void** and emits no scoring event at all (it
+doesn't count toward `resolved_count` either).
 
 ---
 
@@ -154,6 +156,37 @@ displays it and never derives it.
 
 ---
 
+### 3.7 The call is frozen after 24 hours — 2026-09-26
+
+**The holes.** Every protection above assumed the call a user made is the call
+that gets scored. It wasn't: before resolution a user could delete a losing
+thesis (§3.2 only protected *resolved* ones), delete its targets so it never
+resolved, flip conviction to High on a winner and Low on a loser, lower a
+target, or move the deadline. Worst of all, a custom deadline could be
+*tomorrow*: look up a metric, set a target it already meets, and bank a win
+overnight — twenty of those take a new account from 50 to ~91.
+
+**Fix** (`20260926_thesis_integrity_locks.sql`, enforced by triggers because RLS
+can't restrict columns):
+
+- **24-hour edit window.** A thesis and its targets can be edited or deleted
+  only within 24 hours of creation — enough to fix a typo. After that the whole
+  call is frozen. `created_at` is set by the database so the window can't be
+  reopened with a forged timestamp.
+- **Minimum deadline: 30 days**, flat (not "one calendar month", which is 28
+  days from Feb 1). **90 days for revenue growth and profit margin**: they're
+  trailing-twelve-month figures that only change at earnings reports, so a
+  shorter window usually contains no report and the outcome is decided the
+  moment it's set.
+- **Void on missing data.** Previously a thesis with no market data rolled up
+  to Watch and cost −0.5 as a Close — penalising users for a data gap. It now
+  locks as Void, unscored. A Finnhub failure on the deadline night is retried
+  the next night, never voided.
+
+**Still open:** a target that's *already met* when it's set still wins at a
+30-day deadline. Closing that needs a baseline value per target, which is the
+next change (score v2).
+
 ## 4. Where the numbers are duplicated
 
 Changing the weights means touching these, in the same commit:
@@ -163,6 +196,8 @@ Changing the weights means touching these, in the same commit:
 | `data-service/evaluate_theses.py` | The formula. Source of truth. |
 | `data-service/tests/test_evaluate_theses.py` | Pins the incentive property and the crossover bands. |
 | `client/src/components/Onboarding.jsx` | Step 2 shows the gain/loss table to users. |
+| `supabase/migrations/20260926_thesis_integrity_locks.sql` | Edit window (24h) and minimum deadlines (30 / 90 days). |
+| `client/src/lib/lock.js`, `client/src/lib/metrics.js` | Client mirrors of the edit window and minimum deadlines. |
 | `README.md` | Public description of the formula. |
 | This file | The reasoning. |
 
