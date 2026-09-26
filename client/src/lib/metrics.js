@@ -36,6 +36,16 @@ export function minDeadlineDays(metricNames = []) {
     : MIN_DEADLINE_DAYS;
 }
 
+/**
+ * True when every target on a thesis was already satisfied when it was set, so
+ * the call won't count toward the Convict Score. Mirrors counts_toward_score()
+ * in the evaluator: a target not yet baselined (already_met null) gets the
+ * benefit of the doubt, and one genuine target is enough for the call to count.
+ */
+export function allTargetsAlreadyMet(metrics = []) {
+  return metrics.length > 0 && metrics.every((m) => m.already_met === true);
+}
+
 export function getStatusColor(status) {
   if (status === 'On Track') return 'bg-green-500/10 text-green-400';
   if (status === 'Watch') return 'bg-yellow-500/10 text-yellow-400';
