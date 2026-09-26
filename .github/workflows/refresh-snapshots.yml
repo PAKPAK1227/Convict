@@ -13,6 +13,12 @@ on:
     - cron: '0 4 * * *' # 04:00 UTC — after US close, before the 06:00 evaluator
   workflow_dispatch:
 
+# Shared with the other Finnhub workflow: GitHub runs them one at a time, so
+# their separately-paced calls can never stack past the 60/min free tier.
+concurrency:
+  group: finnhub-api
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest

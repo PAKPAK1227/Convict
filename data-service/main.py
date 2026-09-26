@@ -7,6 +7,7 @@ logic can be unit-tested without hitting the network.
 """
 
 import os
+import time
 
 import requests
 from dotenv import load_dotenv
@@ -18,6 +19,27 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 # Finnhub timeout (seconds) so a hung request can't stall the nightly job.
 REQUEST_TIMEOUT = 15
+
+# Retries after an HTTP 429 (rate limited). Both nightly jobs pace themselves
+# under the free tier's 60/min, but a limit hit — e.g. a manual run overlapping
+# a scheduled one — should cost a short wait, not a failed ticker.
+MAX_RETRIES = 3
+DEFAULT_RETRY_AFTER = 5.0
+
+
+def _get(path, params, timeout=REQUEST_TIMEOUT, sleep=time.sleep):
+    """GET a Finnhub endpoint, waiting and retrying on 429. Raises otherwise."""
+    params = {**params, "token": FINNHUB_API_KEY}
+    for attempt in range(MAX_RETRIES + 1):
+        response = requests.get(f"{FINNHUB_BASE}{path}", params=params, timeout=timeout)
+        if response.status_code != 429 or attempt == MAX_RETRIES:
+            response.raise_for_status()
+            return response.json()
+        try:
+            wait = float(response.headers.get("Retry-After", DEFAULT_RETRY_AFTER))
+        except ValueError:
+            wait = DEFAULT_RETRY_AFTER
+        sleep(max(wait, 1.0))
 
 
 def map_fundamentals(raw_metric, ticker):
@@ -39,38 +61,22 @@ def map_fundamentals(raw_metric, ticker):
 
 def get_quote(ticker):
     """Return Finnhub's raw quote payload for a ticker."""
-    url = f"{FINNHUB_BASE}/quote"
-    params = {"symbol": ticker, "token": FINNHUB_API_KEY}
-    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return response.json()
+    return _get("/quote", {"symbol": ticker})
 
 
 def get_symbols(exchange="US"):
     """Every symbol listed on `exchange` (one call; ~30k rows for US)."""
-    url = f"{FINNHUB_BASE}/stock/symbol"
-    params = {"exchange": exchange, "token": FINNHUB_API_KEY}
-    response = requests.get(url, params=params, timeout=60)
-    response.raise_for_status()
-    return response.json()
+    return _get("/stock/symbol", {"exchange": exchange}, timeout=60)
 
 
 def get_profile(ticker):
     """Company profile (name, exchange, ...). Empty dict for an unknown symbol."""
-    url = f"{FINNHUB_BASE}/stock/profile2"
-    params = {"symbol": ticker, "token": FINNHUB_API_KEY}
-    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return response.json()
+    return _get("/stock/profile2", {"symbol": ticker})
 
 
 def get_metric(ticker):
     """Finnhub's raw `metric` object for a ticker (may be empty)."""
-    url = f"{FINNHUB_BASE}/stock/metric"
-    params = {"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY}
-    response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    return response.json().get("metric", {})
+    return _get("/stock/metric", {"symbol": ticker, "metric": "all"}).get("metric", {})
 
 
 def get_fundamentals(ticker):

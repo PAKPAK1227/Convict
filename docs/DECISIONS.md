@@ -344,3 +344,13 @@ matters.
    SQL editor.
 2. After merging, run **Actions → Refresh Ticker Snapshots → Run workflow**
    once so the panel has data before the first scheduled run.
+
+### Rate-limit safeguards
+- Every Finnhub call goes through `main._get()`, which on HTTP 429 waits
+  (`Retry-After`, else 5s) and retries up to 3 times instead of failing the
+  ticker.
+- `evaluate-theses.yml` and `refresh-snapshots.yml` share the `finnhub-api`
+  concurrency group, so GitHub never runs them at once — each paces itself
+  under 60/min, but two at the same time wouldn't be. (A delayed 04:00 run
+  can otherwise overlap the 06:00 one.) GitHub keeps one pending run per
+  group, which is plenty for two daily schedules.
