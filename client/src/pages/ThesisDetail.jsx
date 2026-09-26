@@ -5,7 +5,7 @@ import Navbar from '../components/Navbar';
 import StatusBadge from '../components/StatusBadge';
 import Progress from '../components/Progress';
 import Select from '../components/Select';
-import { METRIC_OPTIONS, metricLabel, targetComparator } from '../lib/metrics';
+import { METRIC_OPTIONS, metricLabel, targetComparator, allTargetsAlreadyMet } from '../lib/metrics';
 import { formatNumber } from '../lib/format';
 import { deadlineStatus, minDeadlineISO } from '../lib/deadline';
 import { editWindow } from '../lib/lock';
@@ -276,6 +276,16 @@ function ThesisDetail() {
                 </p>
               );
             })()}
+            {(thesis.resolved ? thesis.unscored : allTargetsAlreadyMet(metrics)) && (
+              <p className="mt-3 max-w-md rounded-lg border border-line bg-surface-2/60 px-3 py-2 text-xs text-ink-2">
+                <span className="text-ink font-medium">Not scored.</span>{' '}
+                {thesis.resolved
+                  ? 'Every target was already met when it was set, so this call doesn\'t count toward the Convict Score.'
+                  : `Every target was already met when you set it — this call won't count toward your Convict Score.${
+                      win.open ? ' You can still raise the bar while it\'s editable.' : ''
+                    }`}
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0">
             {win.open && (
@@ -408,6 +418,15 @@ function ThesisDetail() {
 
                     {editingMetricId !== metric.id && (
                       <Progress value={tracked ? pct : 0} className="mt-2.5" />
+                    )}
+
+                    {metric.baseline_value != null && (
+                      <p className="mt-2 text-[11px] font-mono text-ink-3 tnum">
+                        Started at {formatNumber(metric.baseline_value)}
+                        {metric.already_met === true && (
+                          <span className="text-status-watch"> · already met when set</span>
+                        )}
+                      </p>
                     )}
                   </div>
                 );

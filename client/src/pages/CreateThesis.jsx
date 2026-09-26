@@ -263,7 +263,8 @@ function CreateThesis() {
           <div className="mb-5 pt-5 border-t border-line">
             <label className={labelClass}>Targets</label>
             <p className="text-xs text-ink-3 mb-3">
-              What has to be true for you to be right? Convict grades the thesis against these.{' '}
+              What has to be true for you to be right? Convict grades the thesis against these, starting
+              from where each metric stands today — if every target is already met, the call won't count.{' '}
               <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
             </p>
 

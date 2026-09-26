@@ -1,4 +1,4 @@
-import { METRIC_OPTIONS, metricLabel, getStatusColor, freshness } from '../metrics';
+import { METRIC_OPTIONS, metricLabel, getStatusColor, freshness, allTargetsAlreadyMet } from '../metrics';
 
 describe('METRIC_OPTIONS', () => {
   test('only exposes the canonical metrics the evaluator understands', () => {
@@ -41,5 +41,22 @@ describe('freshness', () => {
 
   test('ignores invalid timestamps', () => {
     expect(freshness({ updated_at: 'not-a-date' })).toBeNull();
+  });
+});
+
+describe('allTargetsAlreadyMet', () => {
+  test('true only when every target was already met at its baseline', () => {
+    expect(allTargetsAlreadyMet([{ already_met: true }])).toBe(true);
+    expect(allTargetsAlreadyMet([{ already_met: true }, { already_met: true }])).toBe(true);
+  });
+
+  test('one genuine target is enough for the call to count', () => {
+    expect(allTargetsAlreadyMet([{ already_met: true }, { already_met: false }])).toBe(false);
+  });
+
+  test('targets not yet baselined get the benefit of the doubt', () => {
+    expect(allTargetsAlreadyMet([{ already_met: true }, { already_met: null }])).toBe(false);
+    expect(allTargetsAlreadyMet([{}])).toBe(false);
+    expect(allTargetsAlreadyMet([])).toBe(false);
   });
 });

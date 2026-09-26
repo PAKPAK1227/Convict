@@ -42,6 +42,10 @@ Targets show a `≥` / `≤` so the direction is unambiguous (P/E is lower-is-be
 A thesis that reaches its deadline with **no usable market data** (or no targets)
 locks as **Void** and isn't scored in either direction.
 
+Each target records where its metric **started** (its value on the first nightly
+evaluation). If **every** target was already met at that point, the thesis isn't
+a prediction: it still locks with its verdict but doesn't count toward the score.
+
 ### The Convict Score (the trademark metric)
 
 A long-term, credit-score-style rating in **0–100, starting at 50**. It changes
@@ -131,6 +135,7 @@ Paste each file and run once, **in this order**:
 8. `supabase/migrations/20260726_evaluator_heartbeat.sql`
 9. `supabase/migrations/20260726_onboarding.sql`
 10. `supabase/migrations/20260926_thesis_integrity_locks.sql`
+11. `supabase/migrations/20260927_target_baselines.sql`
 
 (If a table already has rows that violate a new CHECK, either clean them first or
 append `NOT VALID` to that constraint — see the notes inside each file.)

@@ -127,6 +127,29 @@ def final_status(live_status):
 
 
 # --------------------------------------------------------------------------- #
+# Baselines — where a metric stood when its target was set
+# --------------------------------------------------------------------------- #
+# The browser can't fetch market data, so a metric's baseline is its value on
+# its first successful evaluation (normally the first night after creation) and
+# never changes after that. A target that was already satisfied at the baseline
+# isn't a prediction; if *every* target graded at the deadline was like that,
+# the thesis still locks with its verdict but emits no scoring event.
+
+def was_already_met(metric_name, baseline_value, target_value):
+    """True if the target was already satisfied at the baseline. Pure."""
+    return evaluate_metric(metric_name, baseline_value, target_value) == "On Track"
+
+
+def counts_toward_score(already_met_flags):
+    """Whether a resolved thesis should score, given the already_met flag of
+    each metric graded at its deadline. It scores if at least one of them was
+    a genuine call — worst-wins grading means an easy target alongside a real
+    one gains nothing, so only the all-already-met case needs excluding. A flag
+    of None (never baselined) is given the benefit of the doubt."""
+    return any(flag is not True for flag in already_met_flags)
+
+
+# --------------------------------------------------------------------------- #
 # Convict Score (the app's trademark metric)
 # --------------------------------------------------------------------------- #
 # A long-term, credit-score-style rating in [0, 100], starting at 50. It only
@@ -243,12 +266,14 @@ def evaluate_all_metrics():
     thesis_statuses = {}
     thesis_meta = {}
     theses_with_metrics = set()
+    graded_already_met = {}
     stats = {
         "metrics_seen": len(metrics),
         "metrics_updated": 0,
         "theses_updated": 0,
         "theses_resolved": 0,
         "theses_voided": 0,
+        "theses_unscored": 0,
         "scores_updated": 0,
         "write_failures": 0,
     }
@@ -285,11 +310,25 @@ def evaluate_all_metrics():
 
         status = evaluate_metric(metric_name, current_value, target_value)
 
-        # Write back the live value (None surfaces as "awaiting data" in the UI).
+        # Write back the live value (None surfaces as "awaiting data" in the UI),
+        # and stamp the baseline the first time a value arrives.
+        payload = {"current_value": current_value}
+        already_met = metric.get("already_met")
+        if metric.get("baseline_value") is None and current_value is not None:
+            # A first value that only arrives on the deadline night is the same
+            # number the call is graded on, so it says nothing about where the
+            # metric stood when the target was set — leave already_met unknown.
+            if is_past_deadline(thesis.get("target_date"), today):
+                already_met = None
+            else:
+                already_met = was_already_met(metric_name, current_value, target_value)
+            payload.update({
+                "baseline_value": current_value,
+                "baseline_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "already_met": already_met,
+            })
         try:
-            supabase.table("metrics").update(
-                {"current_value": current_value}
-            ).eq("id", metric["id"]).execute()
+            supabase.table("metrics").update(payload).eq("id", metric["id"]).execute()
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to update metric %s: %s", metric.get("id"), exc)
             stats["write_failures"] += 1
@@ -302,6 +341,8 @@ def evaluate_all_metrics():
         )
 
         thesis_statuses.setdefault(thesis_id, []).append(status)
+        if status != "Unknown":
+            graded_already_met.setdefault(thesis_id, []).append(already_met)
 
     # Roll each thesis up. Past its deadline -> lock the verdict + record a
     # scoring event; otherwise just keep the live status current.
@@ -312,11 +353,16 @@ def evaluate_all_metrics():
 
         if is_past_deadline(meta.get("target_date"), today):
             locked = final_status(new_status)
+            scores = locked != VOID and counts_toward_score(
+                graded_already_met.get(thesis_id, [])
+            )
+            update = {"status": locked, "resolved": True}
+            if locked != VOID and not scores:
+                update["unscored"] = True
             try:
-                supabase.table("theses").update(
-                    {"status": locked, "resolved": True}
-                ).eq("id", thesis_id).execute()
-                logger.info("Thesis %s RESOLVED as %s (verdict locked)", thesis_id, locked)
+                supabase.table("theses").update(update).eq("id", thesis_id).execute()
+                logger.info("Thesis %s RESOLVED as %s (verdict locked%s)", thesis_id, locked,
+                            "" if scores or locked == VOID else ", not scored: every target already met")
                 stats["theses_resolved"] += 1
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to resolve thesis %s: %s", thesis_id, exc)
@@ -325,6 +371,9 @@ def evaluate_all_metrics():
             if locked == VOID:
                 stats["theses_voided"] += 1
                 continue  # no market data -> no scoring event
+            if not scores:
+                stats["theses_unscored"] += 1
+                continue  # every target was already met when it was set
             user_id = meta.get("user_id")
             if user_id:
                 resolutions_by_user.setdefault(user_id, []).append(
@@ -482,10 +531,10 @@ def main():
 
     logger.info(
         "Run summary: %d metric(s) seen, %d updated, %d thesis update(s), "
-        "%d resolved (%d void), %d score(s) written, %d failure(s)",
+        "%d resolved (%d void, %d unscored), %d score(s) written, %d failure(s)",
         stats["metrics_seen"], stats["metrics_updated"], stats["theses_updated"],
-        stats["theses_resolved"], stats["theses_voided"], stats["scores_updated"],
-        failures,
+        stats["theses_resolved"], stats["theses_voided"], stats["theses_unscored"],
+        stats["scores_updated"], failures,
     )
 
     write_heartbeat(get_supabase(), stats, ok)

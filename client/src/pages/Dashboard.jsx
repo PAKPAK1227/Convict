@@ -11,6 +11,7 @@ import { freshnessRelative } from '../lib/format';
 import { deadlineStatus, daysUntil } from '../lib/deadline';
 import { hasOnboarded, markOnboarded } from '../lib/onboarding';
 import { editWindow } from '../lib/lock';
+import { allTargetsAlreadyMet } from '../lib/metrics';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmContext';
@@ -289,6 +290,12 @@ function Dashboard() {
                                                 <MetricBar key={m.id} metric={m} />
                                             ))}
                                         </div>
+                                    )}
+
+                                    {(thesis.resolved ? thesis.unscored : allTargetsAlreadyMet(metrics)) && (
+                                        <p className="mt-3 text-[11px] text-ink-3">
+                                            Not scored — every target was already met when it was set.
+                                        </p>
                                     )}
 
                                     <div className="mt-5 pt-4 border-t border-line flex items-center justify-between">

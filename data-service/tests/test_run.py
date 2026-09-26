@@ -86,9 +86,10 @@ def thesis(tid, target_date, ticker="NVDA", conviction="Medium", user="u1"):
             "status": "Pending", "conviction_level": conviction, "user_id": user}
 
 
-def metric(mid, tid, name="pe_ratio", target=20.0):
+def metric(mid, tid, name="pe_ratio", target=20.0, baseline=None, already_met=None):
     return {"id": mid, "thesis_id": tid, "metric_name": name,
-            "target_value": target, "current_value": None}
+            "target_value": target, "current_value": None,
+            "baseline_value": baseline, "already_met": already_met}
 
 
 @pytest.fixture
@@ -107,6 +108,14 @@ def run(monkeypatch):
 
 def status_of(db, tid):
     return next(t for t in db.tables["theses"] if t["id"] == tid)
+
+
+def metric_row(db, mid):
+    return next(m for m in db.tables["metrics"] if m["id"] == mid)
+
+
+def fresh_profile():
+    return [{"id": "u1", "convict_score": 50, "resolved_count": 0}]
 
 
 def test_winning_thesis_resolves_and_scores(run):
@@ -170,3 +179,83 @@ def test_partial_data_grades_on_what_is_available(run):
     run(db, {"NVDA": {"pe_ratio": 18.0, "profit_margin": None}})
 
     assert status_of(db, "t1")["status"] == "On Track"
+
+
+# --- baselines ------------------------------------------------------------- #
+
+def test_first_value_stamps_the_baseline(run):
+    db = FakeSupabase([thesis("t1", FUTURE)], [metric("m1", "t1", "pe_ratio", 20.0)])
+    run(db, {"NVDA": {"pe_ratio": 25.0}})
+
+    m = metric_row(db, "m1")
+    assert m["baseline_value"] == 25.0
+    assert m["already_met"] is False
+    assert m["baseline_at"]
+
+
+def test_baseline_is_never_overwritten(run):
+    db = FakeSupabase([thesis("t1", FUTURE)],
+                      [metric("m1", "t1", "pe_ratio", 20.0, baseline=25.0, already_met=False)])
+    run(db, {"NVDA": {"pe_ratio": 15.0}})
+
+    m = metric_row(db, "m1")
+    assert (m["baseline_value"], m["already_met"], m["current_value"]) == (25.0, False, 15.0)
+
+
+def test_no_value_leaves_the_baseline_unset(run):
+    db = FakeSupabase([thesis("t1", FUTURE)], [metric("m1", "t1")])
+    run(db, {"NVDA": {"pe_ratio": None}})
+
+    assert metric_row(db, "m1")["baseline_value"] is None
+
+
+def test_all_targets_already_met_locks_but_does_not_score(run):
+    db = FakeSupabase([thesis("t1", PAST)],
+                      [metric("m1", "t1", "pe_ratio", 40.0, baseline=25.0, already_met=True)],
+                      fresh_profile())
+    stats = run(db, {"NVDA": {"pe_ratio": 26.0}})
+
+    t = status_of(db, "t1")
+    assert (t["status"], t["resolved"], t["unscored"]) == ("On Track", True, True)
+    assert db.tables["profiles"][0]["convict_score"] == 50
+    assert db.tables["profiles"][0]["resolved_count"] == 0
+    assert stats["theses_unscored"] == 1
+
+
+def test_a_genuine_target_alongside_an_easy_one_still_scores(run):
+    db = FakeSupabase(
+        [thesis("t1", PAST)],
+        [metric("m1", "t1", "pe_ratio", 40.0, baseline=25.0, already_met=True),
+         metric("m2", "t1", "profit_margin", 30.0, baseline=22.0, already_met=False)],
+        fresh_profile(),
+    )
+    run(db, {"NVDA": {"pe_ratio": 26.0, "profit_margin": 31.0}})
+
+    assert status_of(db, "t1").get("unscored") is not True
+    assert db.tables["profiles"][0]["convict_score"] == 54.0
+
+
+def test_all_already_met_thesis_is_unscored_even_if_it_later_breaks(run):
+    """Symmetric on purpose: a call that wasn't a prediction doesn't count
+    either way. That's what the UI promises ("won't count toward your
+    Convict Score"), and it can't be exploited — it earns nothing."""
+    db = FakeSupabase([thesis("t1", PAST)],
+                      [metric("m1", "t1", "pe_ratio", 40.0, baseline=25.0, already_met=True)],
+                      fresh_profile())
+    run(db, {"NVDA": {"pe_ratio": 60.0}})
+
+    t = status_of(db, "t1")
+    assert (t["status"], t["unscored"]) == ("Broken", True)
+    assert db.tables["profiles"][0]["convict_score"] == 50
+
+
+def test_a_baseline_first_taken_on_the_deadline_night_is_not_already_met(run):
+    """If data only arrives at resolution, the baseline equals the graded value
+    and can't tell us whether the target was met when it was set."""
+    db = FakeSupabase([thesis("t1", PAST)], [metric("m1", "t1", "pe_ratio", 20.0)],
+                      fresh_profile())
+    run(db, {"NVDA": {"pe_ratio": 18.0}})
+
+    m = metric_row(db, "m1")
+    assert (m["baseline_value"], m["already_met"]) == (18.0, None)
+    assert db.tables["profiles"][0]["convict_score"] == 54.0  # scored normally

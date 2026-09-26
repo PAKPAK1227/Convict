@@ -5,12 +5,14 @@ from evaluate_theses import (
     BROKEN_THRESHOLD,
     SCORE_START,
     apply_resolution,
+    counts_toward_score,
     derive_thesis_status,
     evaluate_metric,
     final_status,
     is_past_deadline,
     normalize_metric_name,
     score_delta,
+    was_already_met,
 )
 
 
@@ -253,3 +255,35 @@ def test_is_past_deadline():
     assert is_past_deadline(None, today) is False
     assert is_past_deadline("garbage", today) is False
     assert is_past_deadline(datetime.date(2026, 7, 1), today) is True
+
+
+# --- baselines: was_already_met / counts_toward_score ---------------------- #
+
+def test_already_met_follows_each_metrics_direction():
+    assert was_already_met("pe_ratio", 25.0, 40.0) is True        # P/E <= 40 at 25
+    assert was_already_met("pe_ratio", 45.0, 40.0) is False
+    assert was_already_met("revenue_growth", 12.0, 10.0) is True  # growth >= 10 at 12
+    assert was_already_met("revenue_growth", 8.0, 10.0) is False
+
+
+def test_a_target_exactly_at_the_baseline_counts_as_already_met():
+    assert was_already_met("profit_margin", 20.0, 20.0) is True
+
+
+def test_missing_baseline_is_not_already_met():
+    assert was_already_met("pe_ratio", None, 20.0) is False
+
+
+def test_every_target_already_met_does_not_score():
+    assert counts_toward_score([True]) is False
+    assert counts_toward_score([True, True]) is False
+
+
+def test_one_genuine_target_is_enough_to_score():
+    # Worst-wins grading means the easy target can't carry the real one.
+    assert counts_toward_score([True, False]) is True
+
+
+def test_never_baselined_targets_get_the_benefit_of_the_doubt():
+    assert counts_toward_score([None]) is True
+    assert counts_toward_score([True, None]) is True
