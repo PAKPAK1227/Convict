@@ -1,5 +1,5 @@
 import { formatNumber } from '../lib/format';
-import { rangePosition, snapshotName } from '../lib/ticker';
+import { rangePosition, snapshotName, thetaReading, formatPercent } from '../lib/ticker';
 
 const asOf = (ts) => {
   const d = new Date(ts);
@@ -8,10 +8,65 @@ const asOf = (ts) => {
     : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+function Stat({ label, value, hint, title }) {
+  return (
+    <div className="min-w-0" title={title}>
+      <div className="eyebrow">{label}</div>
+      <div className="font-mono text-sm tnum text-ink mt-0.5">{value}</div>
+      <div className="text-[11px] text-ink-3 truncate">{hint}</div>
+    </div>
+  );
+}
+
 /**
- * Market context under the ticker field: name, last close and where it sits in
- * its 52-week range. Data is the nightly snapshot (the same closing price
- * grading uses), so it's labelled "as of" rather than presented as live.
+ * Volatility profile over the past year of daily closes — the project's own
+ * MAV / M / Θ framework (data-service/volatility.py). Describes the past;
+ * labelled so it can't be mistaken for a forecast.
+ */
+function Volatility({ row }) {
+  if (row.vol_mav == null) {
+    return (
+      <p className="mt-3 pt-3 border-t border-line text-[11px] text-ink-3">
+        Volatility appears once there's about three months of daily price history.
+      </p>
+    );
+  }
+  const reading = thetaReading(row.vol_theta);
+  return (
+    <div className="mt-3 pt-3 border-t border-line">
+      <div className="grid grid-cols-3 gap-3">
+        <Stat
+          label="MAV"
+          value={formatPercent(row.vol_mav)}
+          hint="How violent"
+          title="Annualised volatility of daily moves, with the trend removed."
+        />
+        <Stat
+          label="M"
+          value={formatPercent(row.vol_m)}
+          hint="How wide"
+          title="Average distance from the year's average price."
+        />
+        <Stat
+          label="Θ"
+          value={row.vol_theta == null ? '—' : Number(row.vol_theta).toFixed(2)}
+          hint={reading ? reading.label : '—'}
+          title="How directional: the price's spread against what a random walk with this volatility would produce. About 1 = random-walk-like."
+        />
+      </div>
+      <p className="mt-2 text-[11px] text-ink-3">
+        {reading ? `${reading.blurb} ` : ''}Past {row.vol_window_days} daily closes — describes
+        the last year, not a forecast.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Market context under the ticker field: name, last close, where it sits in
+ * its 52-week range, and its volatility profile. Data is the nightly snapshot
+ * (the same closing price grading uses), so it's labelled "as of" rather than
+ * presented as live.
  */
 function TickerPanel({ lookup }) {
   const { state, row } = lookup;
@@ -65,6 +120,8 @@ function TickerPanel({ lookup }) {
           </div>
         </div>
       )}
+
+      {row.price != null && <Volatility row={row} />}
     </div>
   );
 }

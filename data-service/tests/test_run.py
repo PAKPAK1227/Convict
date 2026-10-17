@@ -259,3 +259,27 @@ def test_a_baseline_first_taken_on_the_deadline_night_is_not_already_met(run):
     m = metric_row(db, "m1")
     assert (m["baseline_value"], m["already_met"]) == (18.0, None)
     assert db.tables["profiles"][0]["convict_score"] == 54.0  # scored normally
+
+
+# --- Finnhub budget ---------------------------------------------------------- #
+
+def test_budget_grades_the_nearest_deadline_first_and_defers_the_rest(run, monkeypatch):
+    monkeypatch.setattr(ev, "MAX_TICKERS_PER_RUN", 1)
+    db = FakeSupabase(
+        [thesis("later", "2020-06-01", ticker="MSFT"), thesis("sooner", "2020-01-01", ticker="NVDA")],
+        [metric("m1", "later"), metric("m2", "sooner")],
+        fresh_profile(),
+    )
+    stats = run(db, {"NVDA": {"pe_ratio": 18.0}, "MSFT": {"pe_ratio": 18.0}})
+
+    assert status_of(db, "sooner")["resolved"] is True
+    later = status_of(db, "later")
+    assert (later["status"], later["resolved"]) == ("Pending", False)  # deferred, not voided
+    assert stats["tickers_deferred"] == 1
+    assert stats["write_failures"] == 0
+
+
+def test_deadline_sort_key_puts_missing_deadlines_last():
+    keys = sorted([{"target_date": "2027-01-01"}, None, {"target_date": "2026-11-01"}],
+                  key=ev.deadline_sort_key)
+    assert keys[0]["target_date"] == "2026-11-01" and keys[-1] is None

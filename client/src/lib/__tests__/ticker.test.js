@@ -1,4 +1,4 @@
-import { rangePosition, titleCase, snapshotName, lookupState } from '../ticker';
+import { rangePosition, titleCase, snapshotName, lookupState, thetaReading, formatPercent } from '../ticker';
 
 describe('rangePosition', () => {
   test('places the price within its 52-week range', () => {
@@ -46,5 +46,31 @@ describe('lookupState', () => {
   test('never blocks when the data simply is not there', () => {
     expect(lookupState({ row: null, tableHasRows: false })).toBe('unavailable');
     expect(lookupState({ error: new Error('x'), row: null, tableHasRows: true })).toBe('unavailable');
+  });
+});
+
+describe('thetaReading', () => {
+  test('maps Θ onto the bands', () => {
+    expect(thetaReading(0.4).label).toBe('Range-bound');
+    expect(thetaReading(1.0).label).toBe('Random-walk-like');
+    expect(thetaReading(1.8).label).toBe('Directional');
+  });
+
+  test('band edges belong to the band above', () => {
+    expect(thetaReading(0.6).label).toBe('Random-walk-like');
+    expect(thetaReading(1.5).label).toBe('Directional');
+  });
+
+  test('null when there is no Θ', () => {
+    expect(thetaReading(null)).toBeNull();
+    expect(thetaReading(undefined)).toBeNull();
+  });
+});
+
+describe('formatPercent', () => {
+  test('formats a fraction', () => {
+    expect(formatPercent(0.2834)).toBe('28.3%');
+    expect(formatPercent(0.08, 0)).toBe('8%');
+    expect(formatPercent(null)).toBe('—');
   });
 });

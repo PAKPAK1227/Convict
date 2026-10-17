@@ -47,3 +47,25 @@ export function lookupState({ error, row, tableHasRows }) {
   if (row) return 'found';
   return tableHasRows ? 'unknown' : 'unavailable';
 }
+
+// Θ readings. PROVISIONAL — proposed thresholds pending the owner's original
+// table (see docs/DECISIONS.md, "Volatility framework"). Over one year a pure
+// random walk lands below 0.6 about 15% of the time and above 1.5 about 13%,
+// so these describe the past year; they aren't a forecast.
+export const THETA_BANDS = [
+  { max: 0.6, label: 'Range-bound', blurb: 'Moved a lot but went nowhere — choppy, mean-reverting.' },
+  { max: 1.5, label: 'Random-walk-like', blurb: 'Wandered about as much as pure chance would.' },
+  { max: Infinity, label: 'Directional', blurb: 'Spent its movement going somewhere — a trend.' },
+];
+
+/** The reading for a Θ value, or null if there isn't one. */
+export function thetaReading(theta) {
+  if (theta == null || Number.isNaN(Number(theta))) return null;
+  return THETA_BANDS.find((b) => Number(theta) < b.max);
+}
+
+/** 0.2834 -> "28.3%". */
+export function formatPercent(fraction, digits = 1) {
+  if (fraction == null || Number.isNaN(Number(fraction))) return '—';
+  return `${(Number(fraction) * 100).toFixed(digits)}%`;
+}

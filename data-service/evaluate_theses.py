@@ -42,6 +42,13 @@ LOWER_IS_BETTER = {"pe_ratio"}
 
 SUPPORTED_METRICS = {"pe_ratio", "revenue_growth", "profit_margin"}
 
+# Finnhub budget per run: distinct tickers fetched (one call each, 1.2s apart,
+# so ~50 minutes at the cap). Far above today's volume; it exists so that if
+# the app ever outgrows the free tier, the theses closest to their deadline are
+# graded first and the rest wait a night, rather than a resolution being
+# starved at random. Deferred tickers are counted in the heartbeat.
+MAX_TICKERS_PER_RUN = 2500
+
 _supabase = None
 
 
@@ -231,6 +238,11 @@ def is_past_deadline(target_date, today=None):
     return target_date < today
 
 
+def deadline_sort_key(thesis):
+    """Sort key putting the soonest deadline first (no deadline last)."""
+    return str((thesis or {}).get("target_date") or "9999-12-31")[:10]
+
+
 # --------------------------------------------------------------------------- #
 # Orchestration (network + DB)
 # --------------------------------------------------------------------------- #
@@ -259,6 +271,9 @@ def evaluate_all_metrics():
         "*, theses(id, ticker, target_date, resolved, conviction_level, user_id)"
     ).execute()
     metrics = metrics_response.data or []
+    # Closest deadline first, so a budget cut-off only ever delays the theses
+    # with the most time left (see MAX_TICKERS_PER_RUN).
+    metrics.sort(key=lambda m: deadline_sort_key(m.get("theses")))
 
     today = datetime.date.today()
     fundamentals_cache = {}
@@ -277,6 +292,8 @@ def evaluate_all_metrics():
         "scores_updated": 0,
         "write_failures": 0,
     }
+    deferred_tickers = set()
+    attempted_tickers = set()  # counts against MAX_TICKERS_PER_RUN
 
     for metric in metrics:
         thesis = metric.get("theses") or {}
@@ -295,8 +312,12 @@ def evaluate_all_metrics():
         thesis_meta.setdefault(thesis_id, thesis)
 
         # §5: an API failure on one ticker must not kill the whole run.
-        if ticker in failed_tickers:
+        if ticker in failed_tickers or ticker in deferred_tickers:
             continue
+        if ticker not in attempted_tickers and len(attempted_tickers) >= MAX_TICKERS_PER_RUN:
+            deferred_tickers.add(ticker)  # graded on a later run, never voided
+            continue
+        attempted_tickers.add(ticker)
         try:
             fundamentals = get_cached_fundamentals(ticker, fundamentals_cache)
         except Exception as exc:  # noqa: BLE001 - continue past any Finnhub failure
@@ -401,6 +422,10 @@ def evaluate_all_metrics():
             stats["write_failures"] += 1
 
     stats["failed_tickers"] = sorted(failed_tickers)
+    stats["tickers_deferred"] = len(deferred_tickers)
+    if deferred_tickers:
+        logger.warning("Finnhub budget reached: %d ticker(s) deferred to the next run",
+                       len(deferred_tickers))
     if failed_tickers:
         logger.warning("Completed with %d failed ticker(s): %s",
                        len(failed_tickers), ", ".join(sorted(failed_tickers)))
@@ -507,6 +532,7 @@ def write_heartbeat(supabase, stats, ok):
             "scores_updated": stats.get("scores_updated", 0),
             "write_failures": stats.get("write_failures", 0),
             "failed_tickers": stats.get("failed_tickers", []),
+            "tickers_deferred": stats.get("tickers_deferred", 0),
         }).execute()
         logger.info("Heartbeat written (ok=%s)", ok)
     except Exception as exc:  # noqa: BLE001
