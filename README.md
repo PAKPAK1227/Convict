@@ -97,11 +97,14 @@ Full derivation and the decision log: [docs/SCORING.md](docs/SCORING.md).
    profile · convict score               (RLS: owner-scoped)                Finnhub market data
 ```
 
-- The Finnhub key **never ships to the browser** — all market-data fetching is
+- **No API key ever ships to the browser** — all market-data fetching is
   server-side. A second nightly job (`refresh_snapshots.py`, 04:00 UTC) writes
-  the US symbol list and, for the S&P 500 plus every tracked ticker, the last
-  close, 52-week range and company name into `ticker_snapshots`; the create
-  form reads that table, so users typing a ticker never call Finnhub.
+  the US symbol list (Finnhub) and, for the S&P 500 plus every tracked ticker,
+  the last close, 52-week range, MAV / M / Θ volatility profile and company
+  name into `ticker_snapshots`. Prices come from a year of daily history kept
+  from **Massive** (formerly Polygon.io), one call per night for the whole
+  market. The create form reads that table, so users typing a ticker never
+  call an external API.
 - All user data is **owner-scoped by RLS**; profiles are private. The Convict
   Score is written only by the server-side evaluator — clients can never edit it,
   and a database trigger restricts the verdict columns to the evaluator alone.
@@ -140,6 +143,7 @@ Paste each file and run once, **in this order**:
 10. `supabase/migrations/20260926_thesis_integrity_locks.sql`
 11. `supabase/migrations/20260927_target_baselines.sql`
 12. `supabase/migrations/20260928_ticker_snapshots.sql`
+13. `supabase/migrations/20261017_price_history.sql`
 
 (If a table already has rows that violate a new CHECK, either clean them first or
 append `NOT VALID` to that constraint — see the notes inside each file.)
@@ -172,11 +176,12 @@ REACT_APP_SUPABASE_ANON_KEY=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...      # service role key — server-side only, never in the client
 FINNHUB_API_KEY=...
+MASSIVE_API_KEY=...           # free "Stocks Basic" plan at massive.com
 ```
 
-**GitHub Actions secrets** (for the scheduled evaluator)
+**GitHub Actions secrets** (for the scheduled jobs)
 ```
-SUPABASE_URL, SUPABASE_SERVICE_KEY, FINNHUB_API_KEY
+SUPABASE_URL, SUPABASE_SERVICE_KEY, FINNHUB_API_KEY, MASSIVE_API_KEY
 ```
 
 ### 4. Run locally

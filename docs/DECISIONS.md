@@ -354,3 +354,123 @@ matters.
   under 60/min, but two at the same time wouldn't be. (A delayed 04:00 run
   can otherwise overlap the 06:00 one.) GitHub keeps one pending run per
   group, which is plenty for two daily schedules.
+
+---
+
+## Price history, volatility and API budgets (2026-10-17)
+
+### Where historical prices come from: Massive
+The volatility profile needs a year of daily closes. **Finnhub's free plan
+returns 403 for historical candles** (verified with a live call), so a second
+provider was needed.
+
+- **Chosen: Massive (formerly Polygon.io), free "Stocks Basic" plan.** End-of-day
+  data, 2 years of history, 5 calls/minute. Its *grouped daily* endpoint
+  returns every US stock's bar for one date in a single call, so call volume
+  doesn't grow with tickers or users. Bars are split-adjusted and are the
+  official closes, which also removes the risk of a late-starting GitHub job
+  reading a mid-session price.
+- **Rejected: building our own history from nightly Finnhub quotes** —
+  volatility would take ~3 months to appear and a year to be complete, and a
+  delayed run on a weekday can capture an intraday price instead of the close.
+- **Rejected: Tiingo free plan** — one call per ticker, capped at 50/hour and
+  500 symbols/month; too tight for 500+ tickers.
+- **Licensing:** free market-data plans (Finnhub's included) generally restrict
+  commercial use and redistribution. Fine while building; **review the terms
+  before a paid or public launch.**
+
+### Coverage: S&P 500 + tracked tickers
+History and volatility are kept for the S&P 500 plus every ticker with an open
+thesis (~510 tickers, ~126k rows/year, ~15 MB — about 3% of Supabase's free
+tier). Because one grouped call covers the whole market, coverage costs storage,
+not API calls. Every US stock (~2.5M rows/year) was rejected as too much for the
+free database; tracked-only was rejected because the panel would show nothing
+for most tickers a user types.
+
+### Prices moved off Finnhub
+Last close and 52-week range are now computed from the Massive history
+(52-week range from daily highs/lows). That replaced ~1,000 Finnhub quote and
+metric calls a night with zero. Finnhub is kept for the symbol list (1 call),
+company names (once per ticker, ever) and fundamentals in the grader.
+
+### Rate limits as the app grows
+| Caller | Calls | Grows with |
+|---|---|---|
+| Browser | 0 — reads Supabase only | nothing |
+| Snapshot job → Massive | ~2/night (1 grouped + 1 splits) | nothing, except one-off backfills |
+| Snapshot job → Finnhub | ~1/night (+1 per brand-new ticker, ever) | new tickers only |
+| Grader → Finnhub | 1 per distinct ticker with an open thesis | tracked tickers |
+
+Protections:
+- **Massive:** every call goes through one module-level throttle (12.5s apart,
+  4.8/min under the 5 allowed) with HTTP 429 retries, and
+  `MASSIVE_CALL_BUDGET` (220) caps calls per run. The initial year-long
+  backfill (~265 calls) therefore spans two nights; missing days are fetched
+  newest first so current prices exist after the first night.
+- **Grader:** `MAX_TICKERS_PER_RUN` (2,500 ≈ 50 min at 1.2s/call) with theses
+  processed in deadline order, so outgrowing the free tier only ever delays the
+  theses with the most time left, by a night. Deferred theses are never voided.
+  The count is stored in `evaluator_runs.tickers_deferred`, and the heartbeat
+  workflow raises a warning when it's non-zero.
+- **Both nightly workflows** share the `finnhub-api` concurrency group (from
+  the snapshot PR), and all Finnhub calls retry on 429.
+
+### History correctness
+- **Splits.** Grouped bars are split-adjusted as of the night they're fetched,
+  so stored history before a split no longer lines up. One splits call a night
+  finds affected tickers; each has its history replaced with one range call,
+  recorded in `ticker_snapshots.history_backfilled_at` so it isn't repeated.
+  (This is also groundwork for price targets' split protection.)
+- **New tickers.** A ticker with under 90% of the market's stored trading days
+  that has never been backfilled gets one range call. Recent IPOs aren't
+  re-fetched every night.
+- **Holidays.** Weekdays are asked for; one returning no bars is recorded as a
+  market holiday only once it's more than 3 days old, so a day that simply
+  isn't published yet is retried rather than lost.
+- **Retention.** 372 calendar days are used; rows older than 400 days are
+  pruned nightly.
+
+### Volatility framework
+The project owner's own definitions, implemented in `data-service/volatility.py`
+— deliberately not standard realised volatility. Notation: p₀…pₙ sampled
+prices, Δt = 1/252 for daily closes, T = window length in years,
+rᵢ = ln(pᵢ/pᵢ₋₁), r̄ = mean rᵢ, a = mean price.
+
+- **MAV — mean absolute volatility ("how violent").**
+  σ_MAV = √(π/2) · (1/n)·Σ|rᵢ − r̄| · (1/√Δt). Annualised and comparable to
+  quoted volatility. Subtracting r̄ removes drift exactly; √(π/2) converts MAD
+  to standard-deviation units; MAD is steadier than variance under fat tails.
+  No continuous-time limit exists, so Δt is always reported.
+- **M — mean excursion ("how wide").** M = mean(|pᵢ − a|)/a. Dimensionless; the
+  expected payoff of an ATM straddle struck at a for a uniformly random
+  exercise date, as a fraction of notional. Blind to price order by design.
+- **Θ — directionality ("how directional").** Θ = M / (C · σ_MAV · √T), where
+  C = √(2/π) · ∫₀¹ √(t² − t + 1/3) dt. The framework quotes C ≈ 0.318; the code
+  uses the exact closed form, **0.31789** (verified against numerical
+  integration in the tests).
+
+Implementation choices:
+- **Window:** the latest 253 daily closes (one year, T ≈ 1). Shown only with at
+  least 64 closes (about a quarter); below that the estimates are too noisy.
+- **Validation:** seeded simulations confirm the framework's claims — Θ
+  averages 1.0 across 400 driftless random walks; a strong trend reads above
+  1.5; a range-bound series below 0.7.
+- **Θ is noisy over one year.** Simulating 4,000 random walks: median 0.90,
+  middle half 0.68–1.23, and **12.8% land above 1.5 by chance alone**. The UI
+  therefore presents Θ as a description of the past year, never a forecast.
+- **Θ readings are PROVISIONAL.** The owner's original table was truncated
+  ("> 1.5 | Directional; variance spent going…"). Until it's recovered, the
+  panel uses: **< 0.6 Range-bound · 0.6–1.5 Random-walk-like · > 1.5
+  Directional** (random walks land in each ~15% / ~72% / ~13% of the time).
+  They live in `THETA_BANDS` in `client/src/lib/ticker.js`.
+- **Naming:** shown as "Θ" with the caption "How directional", since Θ alone
+  also means options time-decay to finance readers.
+
+### ⚠️ One-time deploy steps
+1. Run **`supabase/migrations/20261017_price_history.sql`** in the Supabase SQL
+   editor **before merging** — the grader writes `tickers_deferred` to its
+   heartbeat, and the snapshot job writes the new columns.
+2. Add the **`MASSIVE_API_KEY`** repository secret (and to `data-service/.env`
+   for local runs).
+3. After merging, run **Actions → Refresh Ticker Snapshots → Run workflow**
+   twice (or let two nights pass) to complete the year of history.
