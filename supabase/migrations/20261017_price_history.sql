@@ -54,6 +54,12 @@ alter table public.ticker_snapshots add column if not exists vol_theta       num
 alter table public.ticker_snapshots add column if not exists vol_window_days integer;  -- closes used
 alter table public.ticker_snapshots add column if not exists vol_as_of       date;
 
+-- When this ticker's full history was last (re)downloaded in one piece. Null
+-- means it needs a backfill: a newly tracked ticker, or one that just split —
+-- nightly bars are split-adjusted as of the night they're fetched, so stored
+-- history before a split no longer lines up and is replaced wholesale.
+alter table public.ticker_snapshots add column if not exists history_backfilled_at timestamptz;
+
 -- --------------------------------------------------------------------------- --
 -- 3. Grader budget visibility
 -- --------------------------------------------------------------------------- --
