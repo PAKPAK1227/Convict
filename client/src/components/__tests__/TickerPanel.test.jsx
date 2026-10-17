@@ -40,3 +40,25 @@ test('renders nothing before a valid ticker is typed', () => {
   const { container } = render(<TickerPanel lookup={{ state: 'idle', row: null }} />);
   expect(container).toBeEmptyDOMElement();
 });
+
+
+test('shows the volatility profile with its reading', () => {
+  render(
+    <TickerPanel
+      lookup={{
+        state: 'found',
+        row: { ...row, vol_mav: 0.2834, vol_m: 0.0841, vol_theta: 1.82, vol_window_days: 253 },
+      }}
+    />
+  );
+  expect(screen.getByText('28.3%')).toBeInTheDocument();
+  expect(screen.getByText('8.4%')).toBeInTheDocument();
+  expect(screen.getByText('1.82')).toBeInTheDocument();
+  expect(screen.getByText('Directional')).toBeInTheDocument();
+  expect(screen.getByText(/not a forecast/)).toBeInTheDocument();
+});
+
+test('explains when there is not enough history for volatility yet', () => {
+  render(<TickerPanel lookup={{ state: 'found', row }} />);
+  expect(screen.getByText(/three months of daily price history/)).toBeInTheDocument();
+});
