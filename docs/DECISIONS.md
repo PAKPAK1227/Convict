@@ -458,11 +458,15 @@ Implementation choices:
 - **Θ is noisy over one year.** Simulating 4,000 random walks: median 0.90,
   middle half 0.68–1.23, and **12.8% land above 1.5 by chance alone**. The UI
   therefore presents Θ as a description of the past year, never a forecast.
-- **Θ readings are PROVISIONAL.** The owner's original table was truncated
-  ("> 1.5 | Directional; variance spent going…"). Until it's recovered, the
-  panel uses: **< 0.6 Range-bound · 0.6–1.5 Random-walk-like · > 1.5
-  Directional** (random walks land in each ~15% / ~72% / ~13% of the time).
-  They live in `THETA_BANDS` in `client/src/lib/ticker.js`.
+- **Θ readings — final (2026-10-17).** The owner's original table was
+  truncated ("> 1.5 | Directional; variance spent going…") and couldn't be
+  recovered, so the owner approved: **< 0.6 Range-bound · 0.6–1.5
+  Random-walk-like · > 1.5 Directional**. 1.5 is the framework's own threshold;
+  0.6 mirrors it so both labels are about equally unusual for a random walk
+  (~15% / ~72% / ~13% of random walks land in each band). Accepted caveat:
+  ~28% of pure random walks get a non-random label by luck, which is why the
+  panel always says it describes the past year, not a forecast. They live in
+  `THETA_BANDS` in `client/src/lib/ticker.js`.
 - **Naming:** shown as "Θ" with the caption "How directional", since Θ alone
   also means options time-decay to finance readers.
 

@@ -48,10 +48,10 @@ export function lookupState({ error, row, tableHasRows }) {
   return tableHasRows ? 'unknown' : 'unavailable';
 }
 
-// Θ readings. PROVISIONAL — proposed thresholds pending the owner's original
-// table (see docs/DECISIONS.md, "Volatility framework"). Over one year a pure
-// random walk lands below 0.6 about 15% of the time and above 1.5 about 13%,
-// so these describe the past year; they aren't a forecast.
+// Θ readings (see docs/DECISIONS.md, "Volatility framework"). 1.5 is the
+// framework's own "directional" threshold; 0.6 mirrors it on the low side.
+// Over one year a pure random walk lands below 0.6 about 15% of the time and
+// above 1.5 about 13%, so these describe the past year; they aren't a forecast.
 export const THETA_BANDS = [
   { max: 0.6, label: 'Range-bound', blurb: 'Moved a lot but went nowhere — choppy, mean-reverting.' },
   { max: 1.5, label: 'Random-walk-like', blurb: 'Wandered about as much as pure chance would.' },
