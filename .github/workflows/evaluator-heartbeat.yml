@@ -86,6 +86,25 @@ jobs:
 
           echo "Heartbeat healthy."
 
+      - name: Warn if the grader hit its Finnhub budget
+        if: success()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        continue-on-error: true # informational only; never breaks the alarm above
+        run: |
+          set -euo pipefail
+          deferred=$(curl -sS --fail-with-body \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/evaluator_runs?select=tickers_deferred&order=ran_at.desc&limit=1" \
+            | jq -r '.[0].tickers_deferred // 0')
+          if [ "$deferred" -gt 0 ]; then
+            echo "::warning::The last run deferred ${deferred} ticker(s) — it hit MAX_TICKERS_PER_RUN. Time to raise the budget or upgrade the Finnhub plan."
+          else
+            echo "No tickers deferred."
+          fi
+
       - name: Trim old heartbeat rows
         if: success()
         env:
