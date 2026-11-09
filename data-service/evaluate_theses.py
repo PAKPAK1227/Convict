@@ -329,6 +329,11 @@ class PriceReader:
 
     def close(self, ticker, on_or_before):
         """The last close on or before a date, or None if there isn't a recent one."""
+        found = self.close_with_day(ticker, on_or_before)
+        return found[0] if found else None
+
+    def close_with_day(self, ticker, on_or_before):
+        """(close, ISO day) of the last close on or before a date, or None."""
         key = (ticker, str(on_or_before))
         if key not in self._closes:
             cutoff = datetime.date.fromisoformat(str(on_or_before)[:10])
@@ -336,7 +341,7 @@ class PriceReader:
             rows = self.supabase.table("price_history").select("day,close").eq(
                 "ticker", ticker).lte("day", cutoff.isoformat()).gte(
                 "day", oldest.isoformat()).order("day", desc=True).limit(1).execute().data or []
-            self._closes[key] = float(rows[0]["close"]) if rows else None
+            self._closes[key] = (float(rows[0]["close"]), rows[0]["day"][:10]) if rows else None
         return self._closes[key]
 
 
@@ -421,7 +426,8 @@ def evaluate_all_metrics():
                 not_ready.add(thesis_id)
                 continue
             try:
-                current_value = prices.close(ticker, target_date[:10] if past_deadline else today.isoformat())
+                found = prices.close_with_day(ticker, target_date[:10] if past_deadline else today.isoformat())
+                current_value, close_day = found if found else (None, None)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to read closes for %s: %s", ticker, exc)
                 stats["write_failures"] += 1  # counted so the run goes red
@@ -445,6 +451,7 @@ def evaluate_all_metrics():
                 not_ready.add(thesis_id)
                 continue
             current_value = fundamentals.get(metric_name)
+            close_day = None
 
         status = evaluate_metric(metric_name, current_value, target_value, direction)
 
@@ -462,7 +469,11 @@ def evaluate_all_metrics():
                 already_met = was_already_met(metric_name, current_value, target_value, direction)
             payload.update({
                 "baseline_value": current_value,
-                "baseline_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                # For a price, the close's own date (~4pm New York): split
+                # adjustment needs to know whether the baseline is pre- or
+                # post-split, and a late-starting run can stamp an older close.
+                "baseline_at": (f"{close_day}T20:00:00+00:00" if close_day else
+                                datetime.datetime.now(datetime.timezone.utc).isoformat()),
                 "already_met": already_met,
             })
         try:

@@ -386,3 +386,13 @@ def test_within_band_already_containing_the_price_is_unscored(run):
 
     m = metric_row(db, "m1")
     assert (m["baseline_value"], m["already_met"]) == (203.0, True)
+
+
+def test_price_baseline_at_is_the_close_day(run):
+    today = ev.datetime.date.today()
+    yesterday = (today - ev.datetime.timedelta(days=1)).isoformat()
+    db = FakeSupabase([thesis("t1", FUTURE, ticker="AAPL")],
+                      [metric("m1", "t1", "price", 250.0, direction="at_least")],
+                      fresh_profile(), closes=[("AAPL", yesterday, 203.0)])
+    run(db, {})
+    assert metric_row(db, "m1")["baseline_at"] == f"{yesterday}T20:00:00+00:00"
