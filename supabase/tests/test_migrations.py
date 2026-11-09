@@ -129,3 +129,70 @@ def test_price_history_is_server_only(db):
     assert db.as_("authenticated", u).one("select count(*) from price_history")[0] == 0
     db.fails("insert into price_history(ticker,day,close) values ('HIST','2026-10-16',1)", match="row-level security")
     assert db.as_("anon").one("select count(*) from price_history_days")[0] == 0
+
+
+# --- 20261108 price targets -------------------------------------------------- #
+
+def test_price_targets_need_a_valid_direction(db):
+    u = db.user()
+    tid = db.thesis(u, days=45)
+    db.as_("authenticated", u)
+    for direction in ("at_least", "at_most", "within"):
+        db.run("insert into metrics(thesis_id,metric_name,target_value,direction) values (%s,'price',200,%s)",
+               (db.thesis(u, days=45), direction))
+        db.as_("authenticated", u)
+    db.fails("insert into metrics(thesis_id,metric_name,target_value) values (%s,'price',200)",
+             (tid,), match="metrics_direction_valid")
+    db.fails("insert into metrics(thesis_id,metric_name,target_value,direction) values (%s,'price',200,'above')",
+             (tid,), match="metrics_direction_valid")
+    db.fails("insert into metrics(thesis_id,metric_name,target_value,direction) values (%s,'pe_ratio',20,'at_most')",
+             (tid,), match="metrics_direction_valid")
+    db.fails("insert into metrics(thesis_id,metric_name,target_value,direction) values (%s,'price',-5,'within')",
+             (tid,), match="metrics_price_positive")
+
+
+def test_price_needs_only_the_30_day_minimum(db):
+    u = db.user()
+    db.as_("authenticated", u).run(
+        "insert into metrics(thesis_id,metric_name,target_value,direction) values (%s,'price',50,'at_most')",
+        (db.thesis(u, days=30),))
+
+
+def test_direction_change_resets_baseline(db):
+    u = db.user()
+    tid = db.thesis(u, days=45)
+    db.as_("authenticated", u)
+    mid = db.one("insert into metrics(thesis_id,metric_name,target_value,direction) "
+                 "values (%s,'price',200,'at_least') returning id", (tid,))[0]
+    db.as_("service_role").run("update metrics set baseline_value=180, already_met=false where id=%s", (mid,))
+    db.as_("authenticated", u).run("update metrics set direction='within' where id=%s", (mid,))
+    assert db.root().one("select baseline_value, direction from metrics where id=%s", (mid,)) == (None, "within")
+
+
+def test_split_adjustment_is_evaluator_only(db):
+    u = db.user()
+    tid = db.thesis(u, days=45)
+    db.as_("authenticated", u)
+    mid = db.one("insert into metrics(thesis_id,metric_name,target_value,direction,target_split_factor) "
+                 "values (%s,'price',200,'at_least',0.25) returning id", (tid,))[0]
+    assert float(db.root().one("select target_split_factor from metrics where id=%s", (mid,))[0]) == 1
+
+    db.as_("service_role").run("update metrics set target_value=50, target_split_factor=0.25, "
+                               "split_adjusted_through='2026-11-02' where id=%s", (mid,))
+    db.as_("authenticated", u).run("update metrics set target_split_factor=1, split_adjusted_through=null where id=%s", (mid,))
+    factor, through = db.root().one("select target_split_factor, split_adjusted_through from metrics where id=%s", (mid,))
+    assert float(factor) == 0.25 and str(through) == "2026-11-02"
+
+
+def test_price_targets_lock_like_any_other(db):
+    u = db.user()
+    old = db.thesis(u, age="30 hours")
+    db.as_("authenticated", u).fails(
+        "insert into metrics(thesis_id,metric_name,target_value,direction) values (%s,'price',10,'at_most')",
+        (old,), match="locked")
+
+
+def test_a_target_must_name_its_metric(db):
+    u = db.user()
+    db.as_("authenticated", u).fails(
+        "insert into metrics(thesis_id,target_value) values (%s,20)", (db.thesis(u),), match="metrics_name_valid")
