@@ -9,8 +9,8 @@ import TickerPanel from '../components/TickerPanel';
 import useTickerSnapshot from '../hooks/useTickerSnapshot';
 import { snapshotName } from '../lib/ticker';
 import { isValidTicker } from '../lib/validation';
-import { METRIC_OPTIONS, EARNINGS_METRICS, metricLabel, targetComparator, minDeadlineDays } from '../lib/metrics';
-import { formatNumber } from '../lib/format';
+import { METRIC_OPTIONS, EARNINGS_METRICS, PRICE, metricLabel, formatTarget, targetError, minDeadlineDays } from '../lib/metrics';
+import TargetFields from '../components/TargetFields';
 import { DEADLINE_PRESETS, presetDateISO, minDeadlineISO, deadlineError, formatDeadlineDate } from '../lib/deadline';
 
 const CONVICTION_OPTIONS = [
@@ -45,6 +45,7 @@ function CreateThesis() {
   const [draftMetrics, setDraftMetrics] = useState([]);
   const [metricName, setMetricName] = useState('');
   const [targetValue, setTargetValue] = useState('');
+  const [direction, setDirection] = useState(''); // price targets only
   const [metricError, setMetricError] = useState('');
 
   const targetDate = deadlinePreset === 'custom' ? customDate : presetDateISO(deadlinePreset);
@@ -79,15 +80,20 @@ function CreateThesis() {
 
   const addDraftMetric = () => {
     setMetricError('');
-    if (!metricName) {
-      setMetricError('Choose a metric.');
+    const problem = targetError(metricName, direction, targetValue);
+    if (problem) {
+      setMetricError(problem);
       return;
     }
-    if (targetValue === '' || Number.isNaN(Number(targetValue))) {
-      setMetricError('Enter a numeric target value.');
-      return;
-    }
-    setDraftMetrics([...draftMetrics, { metric_name: metricName, target_value: Number(targetValue) }]);
+    setDraftMetrics([
+      ...draftMetrics,
+      {
+        metric_name: metricName,
+        target_value: Number(targetValue),
+        direction: metricName === PRICE ? direction : null,
+      },
+    ]);
+    setDirection('');
     // Growth/margin need a 90-day deadline; move a 1-month preset out of the way
     // rather than leaving a selected chip that can't be submitted.
     if (EARNINGS_METRICS.has(metricName) && deadlinePreset === '1M') {
@@ -290,7 +296,9 @@ function CreateThesis() {
             <p className="text-xs text-ink-3 mb-3">
               What has to be true for you to be right? Convict grades the thesis against these, starting
               from where each metric stands today — if every target is already met, the call won't count.{' '}
-              <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
+              <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is
+              lower-is-better). A share-price target can be at least, at most (a bet against the stock), or
+              within ±5% of a price, judged on the deadline's closing price.
             </p>
 
             {draftMetrics.length > 0 && (
@@ -304,9 +312,7 @@ function CreateThesis() {
                       {metricLabel(m.metric_name)}
                     </span>
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-xs tnum text-ink">
-                        {targetComparator(m.metric_name)} {formatNumber(m.target_value)}
-                      </span>
+                      <span className="font-mono text-xs tnum text-ink">{formatTarget(m)}</span>
                       <button
                         type="button"
                         onClick={() => removeDraftMetric(m.metric_name)}
@@ -322,27 +328,17 @@ function CreateThesis() {
 
             {availableMetrics.length > 0 ? (
               <>
-                <Select
-                  value={metricName}
-                  onChange={setMetricName}
+                <TargetFields
                   options={availableMetrics}
-                  placeholder="Select a metric…"
-                  className="mb-2"
+                  metricName={metricName}
+                  onMetricChange={setMetricName}
+                  direction={direction}
+                  onDirectionChange={setDirection}
+                  targetValue={targetValue}
+                  onTargetChange={setTargetValue}
+                  referencePrice={lookup.state === 'found' ? lookup.row?.price : null}
+                  inputClass={inputClass}
                 />
-                <input
-                  type="number"
-                  placeholder="Target value"
-                  value={targetValue}
-                  onChange={(e) => setTargetValue(e.target.value)}
-                  className={`${inputClass} mb-2`}
-                />
-                {EARNINGS_METRICS.has(metricName) && (
-                  <p className="text-xs text-ink-3 mb-2">
-                    This figure only changes when the company reports earnings (about every 3
-                    months), so the deadline must be at least 90 days out — pick one after the
-                    next report.
-                  </p>
-                )}
                 {metricError && (
                   <p className="text-sm text-status-broken mb-2 flex items-start gap-1.5" role="alert">
                     <span aria-hidden="true">⚠</span>{metricError}

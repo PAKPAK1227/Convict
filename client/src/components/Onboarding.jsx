@@ -23,6 +23,11 @@ const TARGET_ROWS = [
   { label: 'P/E Ratio', dir: '≤', blurb: 'Lower is better — "it stays cheaper than 25×".' },
   { label: 'Revenue Growth (%)', dir: '≥', blurb: 'Higher is better — "it keeps growing 20%+".' },
   { label: 'Profit Margin (%)', dir: '≥', blurb: 'Higher is better — "margins hold above 30%".' },
+  {
+    label: 'Share Price ($)',
+    dir: '≥ ≤ ±',
+    blurb: 'Your pick: at least, at most (a bet against it), or within 5% of a price on the deadline.',
+  },
 ];
 
 function Pips({ filled }) {
