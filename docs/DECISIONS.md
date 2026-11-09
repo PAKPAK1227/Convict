@@ -478,3 +478,50 @@ Implementation choices:
    for local runs).
 3. After merging, run **Actions → Refresh Ticker Snapshots → Run workflow**
    twice (or let two nights pass) to complete the year of history.
+
+---
+
+## Price targets (2026-11-08)
+
+Product reasoning is in [SCORING.md §3.9](SCORING.md). Decisions made with the
+owner: Close = within 5% of the target beyond the met range; a within-band call
+containing today's price isn't scored; split-adjust targets automatically;
+price only (fundamentals keep fixed directions); score formula unchanged.
+
+Operationally:
+- **Schema** (`20261108_price_targets.sql`): `price` joins the metric
+  allow-list; `metrics.direction` is required for price and must be null
+  otherwise; price targets must be > $0; `target_split_factor` and
+  `split_adjusted_through` are evaluator-only. Changing a direction inside the
+  24-hour window clears the baseline, like changing the value.
+- **No Finnhub for price.** Price targets are graded from `price_history`
+  (Massive's official closes), so they never touch the grader's Finnhub budget.
+- **Waiting, not guessing.** A price call past its deadline waits until the
+  deadline's trading-day close is ingested; a close older than 7 days counts as
+  no data (the stock stopped trading). More generally, any thesis past its
+  deadline that's missing data which *will* arrive — that close, or a failed or
+  deferred Finnhub fetch for a mixed price + fundamentals thesis — now waits a
+  night instead of resolving on a partial set of targets.
+- **Split adjustment** runs in the snapshot job right after it repairs a split
+  ticker's history, so a target and the closes it's graded against always
+  change together. Splits on or after the creation day apply (the panel showed
+  the pre-split close that day); each applies once. Known imprecision: a user
+  who sets a post-split target on the split day itself gets it rescaled.
+- **Price baselines are dated by their close** (`baseline_at` = that close's
+  day, ~4pm New York), not by when the job ran, so the split rule can tell a
+  pre-split baseline from a post-split one even when GitHub starts a run late.
+- **UI:** one `TargetFields` component for both the create form and the thesis
+  page; direction-aware progress (`metricProgress`), which also fixed P/E bars
+  filling up as P/E rose past a lower-is-better target.
+
+## Migration test suite (2026-11-08)
+
+Migrations were verified with a scratch script that was lost twice between
+sessions. `supabase/tests/` now runs every migration in order on a real
+Postgres via `pgserver` (no Supabase or Docker), behind a shim of Supabase's
+roles, `auth.users`, and JWT-reading `auth.uid()` / `auth.role()`, and tests
+each rule as the role that would hit it. It runs in UTC like Supabase. It
+immediately caught a real bug: `null in (...)` is *unknown* in SQL and CHECK
+constraints let unknown through, so a price target with no direction — or a
+target with no metric name — would have been accepted. Both checks now test for
+null explicitly.

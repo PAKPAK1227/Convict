@@ -220,6 +220,36 @@ drift slightly with the price. Capturing it at creation would need a Supabase
 Edge Function holding the Finnhub key — deferred until something else
 justifies one.
 
+### 3.9 Price targets — 2026-11-08
+
+A thesis can now target the share price: **at least $X**, **at most $X** (the
+first way to bet against a company), or **within ±5% of $X**, judged on the
+official close of the deadline's trading day (Friday's, for a weekend
+deadline). Fundamentals keep their fixed directions for now.
+
+**Grading.** Met as named. A miss is **Close** when the close lands within 5% of
+the target *beyond* the met range, **Broken** further out. For $200: at least ⇒
+$190–$199.99 is Close; within ($190–$210) ⇒ $180–$190 or $210–$220 is Close.
+The fundamentals' rule (Close = within 25% of the target) was rejected for
+price: $150 against a $200 target is a badly wrong call, not a near miss. A
+volatility-scaled Close band was considered and rejected for now as harder to
+explain; it fits naturally into score v2.
+
+**Already met.** The baseline rule (§3.8) applies with the target's direction.
+For a within-band call that means: if the band already contains the price at
+the first evaluation, the call predicts "little change" — about 90% likely over
+30 days on a calm stock — so it isn't scored until v2 can score it by how
+likely it was. The create form warns about this as the target is typed.
+
+**Splits.** A $ target is meaningless after a split (4-for-1 turns $400 into
+$100), and a locked verdict can't be appealed, so unresolved price targets are
+rescaled by each split's ratio — the same call in the new share price, shown as
+"Adjusted for a 4:1 split". Voiding the call was rejected: the user would lose
+a legitimate prediction through no fault of their own.
+
+**The score formula is unchanged** — a correct price call is worth what any
+other correct call is worth. Difficulty weighting is score v2.
+
 ## 4. Where the numbers are duplicated
 
 Changing the weights means touching these, in the same commit:
