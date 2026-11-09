@@ -479,6 +479,15 @@ Implementation choices:
 3. After merging, run **Actions → Refresh Ticker Snapshots → Run workflow**
    twice (or let two nights pass) to complete the year of history.
 
+### "What do these numbers mean?" explainer (2026-11-08)
+The panel's MAV / M / Θ were bare letters with hover tooltips — meaningless to
+most users, and tooltips don't work on phones. A link under the panel opens a
+plain-English guide (`MetricsExplainer.jsx`) covering last close, the 52-week
+range, MAV, M and Θ (with its bands), each filled in with the selected stock's
+own numbers. MAV is made concrete as a typical day's and month's move
+(MAV·√(days/252)). It closes on the "describes the last year, not a forecast"
+caveat, and notes Θ here isn't the options Greek.
+
 ---
 
 ## Price targets (2026-11-08)

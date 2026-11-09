@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { formatNumber } from '../lib/format';
+import MetricsExplainer from './MetricsExplainer';
 import { rangePosition, snapshotName, thetaReading, formatPercent } from '../lib/ticker';
 
 const asOf = (ts) => {
@@ -70,6 +72,7 @@ function Volatility({ row }) {
  */
 function TickerPanel({ lookup }) {
   const { state, row } = lookup;
+  const [explaining, setExplaining] = useState(false);
   if (state === 'idle') return null;
 
   if (state === 'loading') {
@@ -122,6 +125,17 @@ function TickerPanel({ lookup }) {
       )}
 
       {row.price != null && <Volatility row={row} />}
+
+      {row.price != null && (
+        <button
+          type="button"
+          onClick={() => setExplaining(true)}
+          className="mt-2 text-xs font-medium text-brand hover:underline"
+        >
+          What do these numbers mean?
+        </button>
+      )}
+      {explaining && <MetricsExplainer row={row} onClose={() => setExplaining(false)} />}
     </div>
   );
 }

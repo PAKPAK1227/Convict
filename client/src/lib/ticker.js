@@ -69,3 +69,14 @@ export function formatPercent(fraction, digits = 1) {
   if (fraction == null || Number.isNaN(Number(fraction))) return '—';
   return `${(Number(fraction) * 100).toFixed(digits)}%`;
 }
+
+/**
+ * A typical (one-standard-deviation) move over `tradingDays`, from the
+ * annualised MAV: volatility scales with the square root of time, so a day is
+ * MAV/√252 and a month (~21 trading days) is MAV·√(21/252). Used to turn the
+ * yearly number into something concrete in the explainer.
+ */
+export function typicalMove(mav, tradingDays) {
+  if (mav == null || Number.isNaN(Number(mav)) || tradingDays <= 0) return null;
+  return Number(mav) * Math.sqrt(tradingDays / 252);
+}
