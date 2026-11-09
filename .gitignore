@@ -21,3 +21,5 @@ client/build/
 
 # Claude Code local settings
 .claude/
+# Migration test suite virtualenv
+supabase/tests/.venv/
