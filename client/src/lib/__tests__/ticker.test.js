@@ -1,4 +1,4 @@
-import { rangePosition, titleCase, snapshotName, lookupState, thetaReading, formatPercent } from '../ticker';
+import { rangePosition, titleCase, snapshotName, lookupState, thetaReading, formatPercent, typicalMove } from '../ticker';
 
 describe('rangePosition', () => {
   test('places the price within its 52-week range', () => {
@@ -72,5 +72,17 @@ describe('formatPercent', () => {
     expect(formatPercent(0.2834)).toBe('28.3%');
     expect(formatPercent(0.08, 0)).toBe('8%');
     expect(formatPercent(null)).toBe('—');
+  });
+});
+
+describe('typicalMove', () => {
+  test('scales the yearly figure by the square root of time', () => {
+    expect(typicalMove(0.252, 252)).toBeCloseTo(0.252);
+    expect(typicalMove(0.252, 1)).toBeCloseTo(0.252 / Math.sqrt(252));
+    expect(typicalMove(0.30, 21)).toBeCloseTo(0.30 * Math.sqrt(21 / 252));
+  });
+
+  test('null without a volatility', () => {
+    expect(typicalMove(null, 21)).toBeNull();
   });
 });

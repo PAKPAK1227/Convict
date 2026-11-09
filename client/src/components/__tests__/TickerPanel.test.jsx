@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import TickerPanel from '../TickerPanel';
 
 const row = {
@@ -61,4 +61,34 @@ test('shows the volatility profile with its reading', () => {
 test('explains when there is not enough history for volatility yet', () => {
   render(<TickerPanel lookup={{ state: 'found', row }} />);
   expect(screen.getByText(/three months of daily price history/)).toBeInTheDocument();
+});
+
+
+test('"What do these numbers mean?" opens a plain-English guide with this stock\'s numbers', () => {
+  render(
+    <TickerPanel
+      lookup={{
+        state: 'found',
+        row: { ...row, vol_mav: 0.252, vol_m: 0.084, vol_theta: 1.82, vol_window_days: 253 },
+      }}
+    />
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.click(screen.getByText('What do these numbers mean?'));
+
+  const dialog = screen.getByRole('dialog');
+  expect(dialog).toHaveTextContent(/typical day moves about 1\.6%/);   // 25.2% / sqrt(252)
+  expect(dialog).toHaveTextContent(/traded between \$170 and \$260/);
+  expect(dialog).toHaveTextContent(/Θ 1\.82: directional/);
+  expect(dialog).toHaveTextContent(/not as a prediction/);
+
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('the guide still explains the numbers before volatility exists', () => {
+  render(<TickerPanel lookup={{ state: 'found', row }} />);
+  fireEvent.click(screen.getByText('What do these numbers mean?'));
+  expect(screen.getByRole('dialog')).toHaveTextContent(/How violent/);
+  expect(screen.getByRole('dialog')).not.toHaveTextContent(/This stock\s*[\d.]+% a year/);
 });
