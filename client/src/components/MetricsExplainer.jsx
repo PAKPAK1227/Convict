@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { formatNumber } from '../lib/format';
 import { THETA_BANDS, thetaReading, formatPercent, typicalMove, snapshotName } from '../lib/ticker';
 
@@ -41,10 +42,20 @@ function MetricsExplainer({ row, onClose }) {
     closeRef.current?.focus();
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    // Keep the page behind still while the guide scrolls.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [onClose]);
 
-  return (
+  // Rendered into <body>, not where it's used: the ticker panel sits inside the
+  // create form's animated card, and a transformed ancestor turns
+  // `position: fixed` into "fixed to that card" — the backdrop then covered
+  // only the card and the form's own fields painted over the guide.
+  return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
@@ -155,7 +166,8 @@ function MetricsExplainer({ row, onClose }) {
           up. Use them for context when you set a target, not as a prediction.
         </p>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

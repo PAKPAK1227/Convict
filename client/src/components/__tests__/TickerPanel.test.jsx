@@ -86,6 +86,28 @@ test('"What do these numbers mean?" opens a plain-English guide with this stock\
   expect(screen.queryByRole('dialog')).toBeNull();
 });
 
+test('the guide renders outside the animated form card, so nothing on the form can cover it', () => {
+  // Mirrors the create form: the panel lives in a transformed (animated) card
+  // with more fields after it. A fixed overlay inside such a card is trapped
+  // by it — the bug where the conviction and metric dropdowns drew over the guide.
+  const { container } = render(
+    <div data-testid="card" className="animate-fade-up" style={{ transform: 'translateY(0)' }}>
+      <TickerPanel lookup={{ state: 'found', row: { ...row, vol_mav: 0.3, vol_m: 0.07, vol_theta: 0.6, vol_window_days: 253 } }} />
+      <button type="button">Medium conviction</button>
+    </div>
+  );
+  fireEvent.click(screen.getByText('What do these numbers mean?'));
+
+  const dialog = screen.getByRole('dialog');
+  expect(screen.getByTestId('card')).not.toContainElement(dialog);
+  expect(container).not.toContainElement(dialog);
+  expect(document.body).toContainElement(dialog);
+  expect(document.body.style.overflow).toBe('hidden');
+
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(document.body.style.overflow).toBe('');
+});
+
 test('the guide still explains the numbers before volatility exists', () => {
   render(<TickerPanel lookup={{ state: 'found', row }} />);
   fireEvent.click(screen.getByText('What do these numbers mean?'));
