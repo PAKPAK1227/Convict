@@ -184,6 +184,52 @@ def needs_backfill(ticker_days, market_days, backfilled_at, splits):
     return None
 
 
+def split_ratio(split):
+    """Price multiplier for one Massive split record: a 4-for-1 split
+    (split_from 1, split_to 4) turns $400 into $100, so 0.25. None if unusable."""
+    try:
+        ratio = float(split["split_from"]) / float(split["split_to"])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+    return ratio if ratio > 0 else None
+
+
+def split_adjustment(metric, created_day, events):
+    """Updates to keep an open price target meaningful across splits, or None.
+
+    metric       the price metric row (target_value, baseline_value,
+                 baseline_at, target_split_factor, split_adjusted_through)
+    created_day  ISO date the thesis was created
+    events       [(ISO execution date, price ratio)] for its ticker
+
+    Splits on or after the creation day apply (on the split day itself the
+    panel still showed the pre-split close the user set the target against),
+    each exactly once (split_adjusted_through). The baseline is adjusted only
+    if its close predates the split; a post-split close is already in the
+    new terms.
+    """
+    through = metric.get("split_adjusted_through")
+    pending = sorted((day, ratio) for day, ratio in events
+                     if day >= created_day and (not through or day > str(through)[:10]))
+    if not pending:
+        return None
+
+    target = float(metric["target_value"])
+    factor = float(metric.get("target_split_factor") or 1)
+    baseline = metric.get("baseline_value")
+    baseline_day = (metric.get("baseline_at") or "")[:10]
+    for day, ratio in pending:
+        target *= ratio
+        factor *= ratio
+        if baseline is not None and baseline_day and baseline_day < day:
+            baseline = float(baseline) * ratio
+    update = {"target_value": round(target, 6), "target_split_factor": round(factor, 10),
+              "split_adjusted_through": pending[-1][0]}
+    if baseline is not None:
+        update["baseline_value"] = round(float(baseline), 6)
+    return update
+
+
 def snapshot_row(ticker, history, now_iso):
     """Snapshot price + volatility fields from a ticker's history (oldest
     first), or None without any history."""
@@ -245,6 +291,26 @@ def _upsert(supabase, table, rows, on_conflict):
         supabase.table(table).upsert(batch, on_conflict=on_conflict).execute()
 
 
+def _adjust_price_targets(supabase, split_events, unrepaired, stats):
+    rows = supabase.table("metrics").select(
+        "id,thesis_id,target_value,baseline_value,baseline_at,target_split_factor,split_adjusted_through"
+    ).eq("metric_name", "price").execute().data or []
+    theses = {}
+    for batch in chunks(sorted({r["thesis_id"] for r in rows}), 200):
+        for t in supabase.table("theses").select("id,ticker,created_at,resolved").in_(
+                "id", batch).execute().data or []:
+            theses[t["id"]] = t
+    for r in rows:
+        t = theses.get(r["thesis_id"])
+        if not t or t.get("resolved") or t["ticker"] in unrepaired or t["ticker"] not in split_events:
+            continue
+        update = split_adjustment(r, str(t["created_at"])[:10], split_events[t["ticker"]])
+        if update:
+            supabase.table("metrics").update(update).eq("id", r["id"]).execute()
+            stats["targets_split_adjusted"] += 1
+            logger.info("Split-adjusted price target %s on %s: %s", r["id"], t["ticker"], update)
+
+
 def refresh(supabase, finnhub, massive, universe, today, budget=MASSIVE_CALL_BUDGET):
     """Run one refresh. `finnhub` provides get_symbols/get_profile (main.py in
     production), `massive` provides grouped_daily/ticker_range/splits_since
@@ -252,7 +318,8 @@ def refresh(supabase, finnhub, massive, universe, today, budget=MASSIVE_CALL_BUD
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     stats = {"symbols": 0, "symbols_failed": False, "days_ingested": 0, "days_pending": 0,
              "splits_repaired": 0, "backfilled": 0, "priced": 0, "named": 0,
-             "unpriced": 0, "massive_calls": 0, "massive_failures": 0, "targets": 0}
+             "unpriced": 0, "massive_calls": 0, "massive_failures": 0, "targets": 0,
+             "targets_split_adjusted": 0}
 
     def call_massive(fn, *args):
         stats["massive_calls"] += 1
@@ -276,13 +343,17 @@ def refresh(supabase, finnhub, massive, universe, today, budget=MASSIVE_CALL_BUD
     stats["targets"] = len(targets)
 
     # 2. Splits (one call) ----------------------------------------------------
-    split_days = {}
+    split_days, split_events = {}, {}
     if budget - stats["massive_calls"] > 0:
         try:
             since = today - datetime.timedelta(days=HISTORY_CALENDAR_DAYS)
             for s in call_massive(massive.splits_since, since):
                 if s.get("ticker") in keep and s.get("execution_date"):
-                    split_days.setdefault(s["ticker"], []).append(s["execution_date"][:10])
+                    day = s["execution_date"][:10]
+                    split_days.setdefault(s["ticker"], []).append(day)
+                    ratio = split_ratio(s)
+                    if ratio:
+                        split_events.setdefault(s["ticker"], []).append((day, ratio))
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to fetch splits: %s", exc)
             stats["massive_failures"] += 1
@@ -333,6 +404,9 @@ def refresh(supabase, finnhub, massive, universe, today, budget=MASSIVE_CALL_BUD
         if reason:
             queue.append((0 if reason == "split" else 1, ticker, reason))  # splits first
 
+    # Split tickers whose history isn't repaired yet; their price targets
+    # mustn't be adjusted until the closes they're compared to are, too.
+    unrepaired = {ticker for _, ticker, reason in queue if reason == "split"}
     for _, ticker, reason in sorted(queue):
         if budget - stats["massive_calls"] <= 0:
             logger.info("Massive budget spent; %d backfill(s) deferred", len(queue))
@@ -351,7 +425,12 @@ def refresh(supabase, finnhub, massive, universe, today, budget=MASSIVE_CALL_BUD
         supabase.table("ticker_snapshots").upsert(
             {"ticker": ticker, "history_backfilled_at": now_iso}, on_conflict="ticker").execute()
         history[ticker] = rows
+        unrepaired.discard(ticker)
         stats["splits_repaired" if reason == "split" else "backfilled"] += 1
+
+    # 4b. Split-adjust open price targets ($400 -> $100 after a 4-for-1) -----
+    if split_events:
+        _adjust_price_targets(supabase, split_events, unrepaired, stats)
 
     # 5. Snapshots ------------------------------------------------------------
     snapshot_rows = []
@@ -396,10 +475,11 @@ def main():
 
     logger.info(
         "Refresh summary: %d symbols, %d day(s) ingested (%d still missing), "
-        "%d split repair(s), %d backfill(s), %d/%d priced, %d unpriced, "
+        "%d split repair(s), %d price target(s) split-adjusted, %d backfill(s), %d/%d priced, %d unpriced, "
         "%d name(s) fetched, %d Massive call(s), %d Massive failure(s)",
         stats["symbols"], stats["days_ingested"], stats["days_pending"],
-        stats["splits_repaired"], stats["backfilled"], stats["priced"], stats["targets"],
+        stats["splits_repaired"], stats["targets_split_adjusted"], stats["backfilled"],
+        stats["priced"], stats["targets"],
         stats["unpriced"], stats["named"], stats["massive_calls"], stats["massive_failures"],
     )
     return 0 if run_ok(stats) else 1

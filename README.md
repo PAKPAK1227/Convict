@@ -14,8 +14,9 @@ right. Your accuracy over time rolls up into a single trademark number: the
    / Low), and a **resolution deadline** (the date it's judged by) at least 30
    days out, or 90 for revenue growth / profit margin, which only change at
    earnings reports.
-2. **Set metric targets** that would prove it — P/E ratio, revenue growth, or
-   profit margin, each with a target value.
+2. **Set metric targets** that would prove it — P/E ratio, revenue growth,
+   profit margin, or **share price**: at least $X, at most $X (a bet against
+   the stock), or within ±5% of $X, judged on the deadline's closing price.
 3. **Convict evaluates it daily** against live market data (Finnhub) and grades
    each metric, rolling them into a per-thesis verdict.
 4. **At the deadline the verdict locks** and moves your **Convict Score**.
@@ -144,6 +145,7 @@ Paste each file and run once, **in this order**:
 11. `supabase/migrations/20260927_target_baselines.sql`
 12. `supabase/migrations/20260928_ticker_snapshots.sql`
 13. `supabase/migrations/20261017_price_history.sql`
+14. `supabase/migrations/20261108_price_targets.sql`
 
 (If a table already has rows that violate a new CHECK, either clean them first or
 append `NOT VALID` to that constraint — see the notes inside each file.)
@@ -196,6 +198,8 @@ cd data-service && pip install -r requirements.txt && python evaluate_theses.py
 # tests
 cd client && CI=true npx react-scripts test --watchAll=false
 cd data-service && python -m pytest
+# migrations, on a throwaway Postgres (no Supabase or Docker needed; Python 3.12)
+cd supabase/tests && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m pytest
 ```
 
 ### 5. Deploy

@@ -5,8 +5,18 @@ import Navbar from '../components/Navbar';
 import StatusBadge from '../components/StatusBadge';
 import Progress from '../components/Progress';
 import Select from '../components/Select';
-import { METRIC_OPTIONS, metricLabel, targetComparator, allTargetsAlreadyMet } from '../lib/metrics';
-import { formatNumber } from '../lib/format';
+import {
+  METRIC_OPTIONS,
+  PRICE,
+  metricLabel,
+  allTargetsAlreadyMet,
+  formatTarget,
+  formatValue,
+  metricProgress,
+  splitNote,
+  targetError,
+} from '../lib/metrics';
+import TargetFields from '../components/TargetFields';
 import { deadlineStatus, minDeadlineISO } from '../lib/deadline';
 import { editWindow } from '../lib/lock';
 import { useToast } from '../context/ToastContext';
@@ -34,6 +44,7 @@ function ThesisDetail() {
   // add-metric form
   const [metricName, setMetricName] = useState('');
   const [targetValue, setTargetValue] = useState('');
+  const [direction, setDirection] = useState(''); // price targets only
   const [metricError, setMetricError] = useState('');
   const [addingMetric, setAddingMetric] = useState(false);
 
@@ -81,12 +92,9 @@ function ThesisDetail() {
   const handleAddMetric = async () => {
     setMetricError('');
 
-    if (!metricName) {
-      setMetricError('Choose a metric.');
-      return;
-    }
-    if (targetValue === '' || Number.isNaN(Number(targetValue))) {
-      setMetricError('Enter a numeric target value.');
+    const problem = targetError(metricName, direction, targetValue);
+    if (problem) {
+      setMetricError(problem);
       return;
     }
     if (metrics.some((m) => m.metric_name === metricName)) {
@@ -101,6 +109,7 @@ function ThesisDetail() {
         thesis_id: id,
         metric_name: metricName, // already canonical
         target_value: Number(targetValue),
+        direction: metricName === PRICE ? direction : null,
       })
       .select()
       .single();
@@ -113,6 +122,7 @@ function ThesisDetail() {
     setMetrics([...metrics, data]);
     setMetricName('');
     setTargetValue('');
+    setDirection('');
   };
 
   const startEditMetric = (metric) => {
@@ -366,7 +376,7 @@ function ThesisDetail() {
             <span className="text-[11px] text-ink-3">Refreshed daily from live market data</span>
           </div>
           <p className="text-xs text-ink-3 mb-4">
-            Graded vs target: <span className="text-status-ok">On Track</span> (meets) · <span className="text-status-watch">Watch</span> (within 25%) · <span className="text-status-broken">Behind</span> (beyond) — worst metric wins. Provisional until the deadline, then it locks as <span className="text-status-ok">Met</span> / <span className="text-status-watch">Close</span> / <span className="text-status-broken">Broken</span>. <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
+            Graded vs target: <span className="text-status-ok">On Track</span> (meets) · <span className="text-status-watch">Watch</span> (within 25%; within 5% for share price) · <span className="text-status-broken">Behind</span> (beyond) — worst metric wins. Provisional until the deadline, then it locks as <span className="text-status-ok">Met</span> / <span className="text-status-watch">Close</span> / <span className="text-status-broken">Broken</span>. <span className="font-mono text-ink-2">≥ / ≤</span> shows each target's direction (P/E is lower-is-better).
           </p>
 
           {metrics.length === 0 ? (
@@ -374,14 +384,9 @@ function ThesisDetail() {
           ) : (
             <div className="space-y-3">
               {metrics.map((metric) => {
-                const tracked =
-                  metric.current_value != null &&
-                  metric.target_value != null &&
-                  Number(metric.target_value) !== 0 &&
-                  !Number.isNaN(Number(metric.current_value));
-                const pct = tracked
-                  ? Math.max(0, Math.min(100, (Number(metric.current_value) / Number(metric.target_value)) * 100))
-                  : 0;
+                const pct = metricProgress(metric);
+                const tracked = pct != null;
+                const split = splitNote(metric.target_split_factor);
                 return (
                   <div key={metric.id} className="rounded-xl border border-line bg-surface-2/40 p-3.5">
                     <div className="flex items-center justify-between gap-3">
@@ -403,8 +408,8 @@ function ThesisDetail() {
                           <span className="font-mono text-xs tnum">
                             {/* §3: surface missing Finnhub data instead of hiding it */}
                             {tracked
-                              ? <><span className="text-ink font-semibold">{formatNumber(metric.current_value)}</span><span className="text-ink-3"> / {targetComparator(metric.metric_name)} {formatNumber(metric.target_value)}</span></>
-                              : <span className="text-ink-3" title="Convict pulls this from live market data once a day — it populates on the next evaluation.">◷ awaiting data · target {targetComparator(metric.metric_name)} {formatNumber(metric.target_value)}</span>}
+                              ? <><span className="text-ink font-semibold">{formatValue(metric.metric_name, metric.current_value)}</span><span className="text-ink-3"> / {formatTarget(metric)}</span></>
+                              : <span className="text-ink-3" title="Convict pulls this from market data once a day — it populates on the next evaluation.">◷ awaiting data · target {formatTarget(metric)}</span>}
                           </span>
                           {win.open && (
                             <>
@@ -420,11 +425,18 @@ function ThesisDetail() {
                       <Progress value={tracked ? pct : 0} className="mt-2.5" />
                     )}
 
-                    {metric.baseline_value != null && (
+                    {(metric.baseline_value != null || split) && (
                       <p className="mt-2 text-[11px] font-mono text-ink-3 tnum">
-                        Started at {formatNumber(metric.baseline_value)}
+                        {metric.baseline_value != null && (
+                          <>Started at {formatValue(metric.metric_name, metric.baseline_value)}</>
+                        )}
                         {metric.already_met === true && (
                           <span className="text-status-watch"> · already met when set</span>
+                        )}
+                        {split && (
+                          <span title="The company split its shares, so the target was rescaled to match — the same call in the new share price.">
+                            {metric.baseline_value != null ? ' · ' : ''}{split}
+                          </span>
                         )}
                       </p>
                     )}
@@ -438,19 +450,15 @@ function ThesisDetail() {
           {win.open && (
           <div className="mt-5 pt-5 border-t border-line">
             <label className="block text-xs font-medium text-ink-2 mb-2">Add a metric</label>
-            <Select
-              value={metricName}
-              onChange={setMetricName}
+            <TargetFields
               options={addableMetrics}
-              placeholder="Select a metric…"
-              className="mb-2"
-            />
-            <input
-              type="number"
-              placeholder="Target value"
-              value={targetValue}
-              onChange={(e) => setTargetValue(e.target.value)}
-              className={`${inputClass} w-full mb-2`}
+              metricName={metricName}
+              onMetricChange={setMetricName}
+              direction={direction}
+              onDirectionChange={setDirection}
+              targetValue={targetValue}
+              onTargetChange={setTargetValue}
+              inputClass={inputClass}
             />
             {metricError && (
               <p className="text-sm text-status-broken mb-2 flex items-start gap-1.5" role="alert">

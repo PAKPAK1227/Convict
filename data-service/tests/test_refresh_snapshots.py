@@ -126,7 +126,7 @@ def test_run_ok():
 # --- runs against fakes ---------------------------------------------------- #
 
 KEYS = {"ticker_snapshots": ("ticker",), "price_history": ("ticker", "day"),
-        "price_history_days": ("day",), "theses": ("id",)}
+        "price_history_days": ("day",), "theses": ("id",), "metrics": ("id",)}
 
 
 class FakeQuery:
@@ -171,6 +171,10 @@ class FakeQuery:
         self.op = "delete"
         return self
 
+    def update(self, payload):
+        self.op, self.payload = "update", payload
+        return self
+
     def execute(self):
         table = self.db.setdefault(self.table, {})
         key = KEYS[self.table]
@@ -180,6 +184,10 @@ class FakeQuery:
                 table.setdefault(tuple(r[k] for k in key), {}).update({c: r.get(c) for c in columns})
             return SimpleNamespace(data=None)
         matched = [k for k, r in table.items() if all(f(r) for f in self.filters)]
+        if self.op == "update":
+            for k in matched:
+                table[k].update(self.payload)
+            return SimpleNamespace(data=None)
         if self.op == "delete":
             for k in matched:
                 del table[k]
@@ -194,9 +202,10 @@ class FakeQuery:
 
 
 class FakeSupabase:
-    def __init__(self, theses=(), snapshots=(), history=(), days=()):
+    def __init__(self, theses=(), snapshots=(), history=(), days=(), metrics=()):
         self.db = {
-            "theses": {(i,): dict(t, id=i) for i, t in enumerate(theses)},
+            "theses": {(t.get("id", i),): dict(t, id=t.get("id", i)) for i, t in enumerate(theses)},
+            "metrics": {(m["id"],): dict(m) for m in metrics},
             "ticker_snapshots": {(s["ticker"],): dict(s) for s in snapshots},
             "price_history": {(r["ticker"], r["day"]): dict(r) for r in history},
             "price_history_days": {(d["day"],): dict(d) for d in days},
@@ -352,3 +361,81 @@ def test_old_history_is_pruned():
     rs.refresh(sb, FakeFinnhub(), FakeMassive(), ["AAPL"], TODAY, budget=3)
     assert ("AAPL", "2025-01-02") not in sb.db["price_history"]
     assert ("2025-01-02",) not in sb.db["price_history_days"]
+
+
+
+# --- split-adjusting price targets ----------------------------------------- #
+
+def price_metric(target=400.0, baseline=380.0, baseline_at="2026-09-01T20:00:00+00:00",
+                 factor=1, through=None):
+    return {"id": "m1", "thesis_id": "t1", "metric_name": "price", "target_value": target,
+            "baseline_value": baseline, "baseline_at": baseline_at,
+            "target_split_factor": factor, "split_adjusted_through": through}
+
+
+def test_split_ratio():
+    assert rs.split_ratio({"split_from": 1, "split_to": 4}) == 0.25    # 4-for-1
+    assert rs.split_ratio({"split_from": 10, "split_to": 1}) == 10     # 1-for-10 reverse
+    assert rs.split_ratio({"split_from": 1, "split_to": 0}) is None
+    assert rs.split_ratio({}) is None
+
+
+def test_a_four_for_one_split_quarters_the_target_and_an_older_baseline():
+    update = rs.split_adjustment(price_metric(), "2026-08-15", [("2026-10-05", 0.25)])
+    assert update == {"target_value": 100.0, "target_split_factor": 0.25,
+                      "split_adjusted_through": "2026-10-05", "baseline_value": 95.0}
+
+
+def test_a_baseline_from_after_the_split_is_left_alone():
+    m = price_metric(baseline=95.0, baseline_at="2026-10-06T20:00:00+00:00")
+    assert rs.split_adjustment(m, "2026-08-15", [("2026-10-05", 0.25)])["baseline_value"] == 95.0
+
+
+def test_splits_before_the_thesis_existed_are_ignored():
+    assert rs.split_adjustment(price_metric(), "2026-10-10", [("2026-10-05", 0.25)]) is None
+
+
+def test_a_split_on_the_creation_day_applies():
+    assert rs.split_adjustment(price_metric(), "2026-10-05", [("2026-10-05", 0.25)]) is not None
+
+
+def test_each_split_applies_once_and_several_compound():
+    m = price_metric(target=100.0, factor=0.25, through="2026-10-05")
+    assert rs.split_adjustment(m, "2026-08-15", [("2026-10-05", 0.25)]) is None
+    update = rs.split_adjustment(m, "2026-08-15", [("2026-10-05", 0.25), ("2026-11-02", 0.5)])
+    assert update["target_value"] == 50.0 and update["target_split_factor"] == 0.125
+
+
+def test_run_adjusts_open_targets_after_repairing_history():
+    sb, mv = FakeSupabase(), FakeMassive()
+    rs.refresh(sb, FakeFinnhub(), mv, ["AAPL", "MSFT"], TODAY, budget=10_000)
+
+    sb.db["theses"][("t1",)] = {"id": "t1", "ticker": "AAPL", "created_at": "2026-08-01T15:00:00+00:00",
+                                "resolved": False}
+    sb.db["theses"][("t2",)] = {"id": "t2", "ticker": "AAPL", "created_at": "2026-08-01T15:00:00+00:00",
+                                "resolved": True}
+    sb.db["metrics"][("m1",)] = price_metric()
+    sb.db["metrics"][("m2",)] = dict(price_metric(), id="m2", thesis_id="t2")
+    mv.splits = [{"ticker": "AAPL", "execution_date": "2026-10-05", "split_from": 1, "split_to": 4}]
+    stats = rs.refresh(sb, FakeFinnhub(), mv, ["AAPL", "MSFT"], TODAY)
+
+    assert stats["splits_repaired"] == 1 and stats["targets_split_adjusted"] == 1
+    assert sb.db["metrics"][("m1",)]["target_value"] == 100.0
+    assert sb.db["metrics"][("m2",)]["target_value"] == 400.0   # resolved: left as it was
+
+    stats = rs.refresh(sb, FakeFinnhub(), mv, ["AAPL", "MSFT"], TODAY)
+    assert stats["targets_split_adjusted"] == 0                  # applied once
+    assert sb.db["metrics"][("m1",)]["target_value"] == 100.0
+
+
+def test_targets_wait_while_the_tickers_history_is_unrepaired():
+    sb, mv = FakeSupabase(), FakeMassive()
+    rs.refresh(sb, FakeFinnhub(), mv, ["AAPL"], TODAY, budget=10_000)
+    sb.db["theses"][("t1",)] = {"id": "t1", "ticker": "AAPL", "created_at": "2026-08-01T15:00:00+00:00",
+                                "resolved": False}
+    sb.db["metrics"][("m1",)] = price_metric()
+    mv.splits = [{"ticker": "AAPL", "execution_date": "2026-10-05", "split_from": 1, "split_to": 4}]
+
+    stats = rs.refresh(sb, FakeFinnhub(), mv, ["AAPL"], TODAY, budget=1)   # only the splits call
+    assert stats["splits_repaired"] == 0
+    assert sb.db["metrics"][("m1",)]["target_value"] == 400.0          # not yet
