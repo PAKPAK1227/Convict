@@ -287,3 +287,54 @@ def test_one_genuine_target_is_enough_to_score():
 def test_never_baselined_targets_get_the_benefit_of_the_doubt():
     assert counts_toward_score([None]) is True
     assert counts_toward_score([True, None]) is True
+
+
+
+# --- price targets ------------------------------------------------------------ #
+
+import pytest  # noqa: E402
+
+from evaluate_theses import evaluate_price  # noqa: E402
+
+
+@pytest.mark.parametrize("close, expected", [
+    (205, "On Track"), (200, "On Track"),        # at or above $200
+    (195, "Watch"), (190, "Watch"),              # within 5% of $200 below it
+    (189.99, "Broken"), (150, "Broken"),
+])
+def test_price_at_least(close, expected):
+    assert evaluate_price(close, 200, "at_least") == expected
+
+
+@pytest.mark.parametrize("close, expected", [
+    (150, "On Track"), (200, "On Track"),
+    (210, "Watch"), (210.01, "Broken"),
+])
+def test_price_at_most(close, expected):
+    assert evaluate_price(close, 200, "at_most") == expected
+
+
+@pytest.mark.parametrize("close, expected", [
+    (190, "On Track"), (210, "On Track"), (200, "On Track"),   # $200 ± 5%
+    (180, "Watch"), (220, "Watch"), (185, "Watch"),            # within $10 beyond the band
+    (179.99, "Broken"), (220.01, "Broken"),
+])
+def test_price_within_band(close, expected):
+    assert evaluate_price(close, 200, "within") == expected
+
+
+def test_price_without_data_or_direction_is_unknown():
+    assert evaluate_price(None, 200, "at_least") == "Unknown"
+    assert evaluate_price(205, 200, None) == "Unknown"
+    assert evaluate_price(205, 0, "at_least") == "Unknown"
+
+
+def test_price_routes_through_evaluate_metric():
+    assert evaluate_metric("price", 205, 200, "at_least") == "On Track"
+
+
+def test_within_band_containing_todays_price_counts_as_already_met():
+    assert was_already_met("price", 203, 200, "within") is True
+    assert was_already_met("price", 150, 200, "within") is False
+    assert was_already_met("price", 150, 200, "at_most") is True
+    assert was_already_met("price", 150, 200, "at_least") is False

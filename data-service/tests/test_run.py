@@ -16,7 +16,7 @@ class FakeQuery:
     def __init__(self, db, table):
         self.db, self.table = db, table
         self.op, self.payload, self.filters = "select", None, []
-        self._single = False
+        self._single, self._order, self._limit = False, None, None
 
     def select(self, *_args, **_kwargs):
         self.op = "select"
@@ -35,7 +35,23 @@ class FakeQuery:
         return self
 
     def eq(self, column, value):
-        self.filters.append((column, value))
+        self.filters.append(lambda r: r.get(column) == value)
+        return self
+
+    def lte(self, column, value):
+        self.filters.append(lambda r: r.get(column) is not None and r[column] <= value)
+        return self
+
+    def gte(self, column, value):
+        self.filters.append(lambda r: r.get(column) is not None and r[column] >= value)
+        return self
+
+    def order(self, column, desc=False):
+        self._order = (column, desc)
+        return self
+
+    def limit(self, n):
+        self._limit = n
         return self
 
     def single(self):
@@ -43,12 +59,17 @@ class FakeQuery:
         return self
 
     def _matches(self, row):
-        return all(row.get(c) == v for c, v in self.filters)
+        return all(f(row) for f in self.filters)
 
     def execute(self):
         rows = self.db.tables.setdefault(self.table, [])
         if self.op == "select":
             found = [dict(r) for r in rows if self._matches(r)]
+            if self._order:
+                column, desc = self._order
+                found.sort(key=lambda r: r.get(column), reverse=desc)
+            if self._limit is not None:
+                found = found[:self._limit]
             if self.table == "metrics":  # emulate the embedded theses(...) join
                 theses = {t["id"]: t for t in self.db.tables["theses"]}
                 for m in found:
@@ -74,8 +95,14 @@ class FakeQuery:
 
 
 class FakeSupabase:
-    def __init__(self, theses, metrics, profiles=()):
-        self.tables = {"theses": theses, "metrics": metrics, "profiles": list(profiles)}
+    def __init__(self, theses, metrics, profiles=(), closes=(), days=None):
+        # closes: (ticker, day, close) tuples; days: ingested trading days
+        # (defaults to every day that has a close).
+        history = [{"ticker": t, "day": d, "close": c} for t, d, c in closes]
+        days = sorted({d for _, d, _ in closes}) if days is None else days
+        self.tables = {"theses": theses, "metrics": metrics, "profiles": list(profiles),
+                       "price_history": history,
+                       "price_history_days": [{"day": d} for d in days]}
 
     def table(self, name):
         return FakeQuery(self, name)
@@ -86,8 +113,8 @@ def thesis(tid, target_date, ticker="NVDA", conviction="Medium", user="u1"):
             "status": "Pending", "conviction_level": conviction, "user_id": user}
 
 
-def metric(mid, tid, name="pe_ratio", target=20.0, baseline=None, already_met=None):
-    return {"id": mid, "thesis_id": tid, "metric_name": name,
+def metric(mid, tid, name="pe_ratio", target=20.0, baseline=None, already_met=None, direction=None):
+    return {"id": mid, "thesis_id": tid, "metric_name": name, "direction": direction,
             "target_value": target, "current_value": None,
             "baseline_value": baseline, "already_met": already_met}
 
@@ -283,3 +310,79 @@ def test_deadline_sort_key_puts_missing_deadlines_last():
     keys = sorted([{"target_date": "2027-01-01"}, None, {"target_date": "2026-11-01"}],
                   key=ev.deadline_sort_key)
     assert keys[0]["target_date"] == "2026-11-01" and keys[-1] is None
+
+
+
+# --- price targets ------------------------------------------------------------ #
+
+DEADLINE = "2026-10-16"  # a Friday, in the past
+
+
+def price_thesis(target, direction, baseline=180.0, already_met=False, deadline=DEADLINE):
+    return ([thesis("t1", deadline, ticker="AAPL")],
+            [metric("m1", "t1", "price", target, baseline=baseline, already_met=already_met,
+                    direction=direction)])
+
+
+def test_price_target_is_graded_on_the_deadline_close_without_finnhub(run):
+    theses, metrics = price_thesis(200.0, "at_least")
+    db = FakeSupabase(theses, metrics, fresh_profile(), closes=[
+        ("AAPL", "2026-10-15", 150.0),
+        ("AAPL", "2026-10-16", 205.0),   # the deadline's close
+        ("AAPL", "2026-10-19", 120.0),   # after the deadline: ignored
+    ])
+    stats = run(db, {})                  # no Finnhub data at all
+
+    t = status_of(db, "t1")
+    assert (t["status"], t["resolved"]) == ("On Track", True)
+    assert metric_row(db, "m1")["current_value"] == 205.0
+    assert db.tables["profiles"][0]["convict_score"] == 54.0
+    assert stats["tickers_deferred"] == 0
+
+
+def test_weekend_deadline_uses_fridays_close():
+    assert str(ev.last_weekday_on_or_before("2026-10-18")) == "2026-10-16"  # Sunday -> Friday
+    assert str(ev.last_weekday_on_or_before("2026-10-16")) == "2026-10-16"
+
+
+def test_price_call_waits_until_the_deadline_close_is_ingested(run):
+    theses, metrics = price_thesis(200.0, "at_least")
+    db = FakeSupabase(theses, metrics, fresh_profile(),
+                      closes=[("AAPL", "2026-10-15", 205.0)])   # Friday's bars not in yet
+    stats = run(db, {})
+
+    t = status_of(db, "t1")
+    assert t["resolved"] is False and t["status"] != "Void"
+    assert stats["theses_waiting"] == 1
+    assert db.tables["profiles"][0]["convict_score"] == 50
+
+
+def test_mixed_thesis_waits_if_its_fundamentals_could_not_be_fetched(run):
+    db = FakeSupabase(
+        [thesis("t1", DEADLINE, ticker="AAPL")],
+        [metric("m1", "t1", "price", 200.0, baseline=180.0, already_met=False, direction="at_least"),
+         metric("m2", "t1", "pe_ratio", 30.0, baseline=35.0, already_met=False)],
+        fresh_profile(), closes=[("AAPL", "2026-10-16", 205.0)])
+    run(db, {"AAPL": RuntimeError("Finnhub down")})
+
+    assert status_of(db, "t1")["resolved"] is False   # not resolved on the price leg alone
+
+
+def test_a_stale_close_is_no_data(run):
+    theses, metrics = price_thesis(200.0, "at_least")
+    db = FakeSupabase(theses, metrics, fresh_profile(),
+                      closes=[("AAPL", "2026-09-01", 205.0)], days=["2026-10-16"])
+    run(db, {})
+
+    assert status_of(db, "t1")["status"] == "Void"   # stopped trading: no gradeable close
+
+
+def test_within_band_already_containing_the_price_is_unscored(run):
+    today = ev.datetime.date.today().isoformat()
+    db = FakeSupabase([thesis("t1", FUTURE, ticker="AAPL")],
+                      [metric("m1", "t1", "price", 200.0, direction="within")],
+                      fresh_profile(), closes=[("AAPL", today, 203.0)])
+    run(db, {})
+
+    m = metric_row(db, "m1")
+    assert (m["baseline_value"], m["already_met"]) == (203.0, True)

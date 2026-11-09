@@ -40,7 +40,18 @@ BROKEN_THRESHOLD = 0.25
 # Metrics where a *lower* value is better than the target.
 LOWER_IS_BETTER = {"pe_ratio"}
 
-SUPPORTED_METRICS = {"pe_ratio", "revenue_growth", "profit_margin"}
+SUPPORTED_METRICS = {"pe_ratio", "revenue_growth", "profit_margin", "price"}
+
+# Price targets (see docs/SCORING.md §3.9). Graded on the official close from
+# price_history, never on Finnhub, so they don't touch the Finnhub budget.
+PRICE = "price"
+PRICE_DIRECTIONS = {"at_least", "at_most", "within"}
+PRICE_BAND = 0.05          # "within ±5% of $X"
+PRICE_CLOSE_MARGIN = 0.05  # missing by up to 5% of the target beyond it is Close
+
+# A close older than this (before the date it's wanted for) means the ticker
+# stopped trading or its data stopped arriving: no value, rather than a stale one.
+MAX_CLOSE_AGE_DAYS = 7
 
 # Finnhub budget per run: distinct tickers fetched (one call each, 1.2s apart,
 # so ~50 minutes at the cap). Far above today's volume; it exists so that if
@@ -73,12 +84,42 @@ def normalize_metric_name(name):
     return name.strip().lower().replace(" ", "_")
 
 
-def evaluate_metric(metric_name, current_value, target_value):
+def evaluate_price(current_value, target_value, direction):
+    """Status for a price target. Pure.
+
+    at_least $X: met at or above X.  at_most $X: met at or below X.
+    within $X: met inside X ± PRICE_BAND. A miss is Close ("Watch") when the
+    close lands within PRICE_CLOSE_MARGIN of the target *beyond* the met
+    range — so for $200: at least -> $190–$199.99 is Close; within ($190–$210)
+    -> $180–$190 or $210–$220 is Close — and Broken further out.
+    The fundamentals' 25% rule is far too lenient for price ($150 vs a $200
+    target would have counted as Close).
+    """
+    if current_value is None or target_value is None or target_value <= 0:
+        return "Unknown"
+    if direction == "at_least":
+        low, high = target_value, float("inf")
+    elif direction == "at_most":
+        low, high = 0.0, target_value
+    elif direction == "within":
+        low, high = target_value * (1 - PRICE_BAND), target_value * (1 + PRICE_BAND)
+    else:
+        return "Unknown"
+
+    if low <= current_value <= high:
+        return "On Track"
+    miss = (low - current_value) if current_value < low else (current_value - high)
+    return "Watch" if miss <= PRICE_CLOSE_MARGIN * target_value + 1e-9 else "Broken"
+
+
+def evaluate_metric(metric_name, current_value, target_value, direction=None):
     """Return the status for a single metric.
 
     One of: "On Track", "Watch", "Broken", or "Unknown" (missing data or an
     unsupported metric). Pure — safe to unit-test.
     """
+    if metric_name == PRICE:
+        return evaluate_price(current_value, target_value, direction)
     if metric_name not in SUPPORTED_METRICS:
         return "Unknown"
     if current_value is None or target_value is None:
@@ -142,9 +183,14 @@ def final_status(live_status):
 # isn't a prediction; if *every* target graded at the deadline was like that,
 # the thesis still locks with its verdict but emits no scoring event.
 
-def was_already_met(metric_name, baseline_value, target_value):
-    """True if the target was already satisfied at the baseline. Pure."""
-    return evaluate_metric(metric_name, baseline_value, target_value) == "On Track"
+def was_already_met(metric_name, baseline_value, target_value, direction=None):
+    """True if the target was already satisfied at the baseline. Pure.
+
+    For a "within" price target that means today's price is already inside the
+    band: a call that the price stays roughly where it is, which isn't scored
+    until score v2 can price how likely that was (owner's decision, 2026-11-08).
+    """
+    return evaluate_metric(metric_name, baseline_value, target_value, direction) == "On Track"
 
 
 def counts_toward_score(already_met_flags):
@@ -238,6 +284,15 @@ def is_past_deadline(target_date, today=None):
     return target_date < today
 
 
+def last_weekday_on_or_before(day):
+    """The last Mon–Fri date on or before `day` (an ISO string or date)."""
+    if isinstance(day, str):
+        day = datetime.date.fromisoformat(day[:10])
+    while day.weekday() >= 5:
+        day -= datetime.timedelta(days=1)
+    return day
+
+
 def deadline_sort_key(thesis):
     """Sort key putting the soonest deadline first (no deadline last)."""
     return str((thesis or {}).get("target_date") or "9999-12-31")[:10]
@@ -246,6 +301,44 @@ def deadline_sort_key(thesis):
 # --------------------------------------------------------------------------- #
 # Orchestration (network + DB)
 # --------------------------------------------------------------------------- #
+
+class PriceReader:
+    """Official daily closes from price_history (written nightly from Massive
+    by refresh_snapshots.py). Reads are cached for the run."""
+
+    _UNSET = object()
+
+    def __init__(self, supabase):
+        self.supabase = supabase
+        self._through = self._UNSET
+        self._closes = {}
+
+    def history_through(self):
+        """The latest trading day ingested (holidays included), or None."""
+        if self._through is self._UNSET:
+            rows = self.supabase.table("price_history_days").select("day").order(
+                "day", desc=True).limit(1).execute().data or []
+            self._through = datetime.date.fromisoformat(rows[0]["day"][:10]) if rows else None
+        return self._through
+
+    def covers(self, target_date):
+        """Whether history reaches the deadline's trading day, so the close a
+        price call is judged on exists. Until then the call waits a night."""
+        through = self.history_through()
+        return through is not None and through >= last_weekday_on_or_before(target_date)
+
+    def close(self, ticker, on_or_before):
+        """The last close on or before a date, or None if there isn't a recent one."""
+        key = (ticker, str(on_or_before))
+        if key not in self._closes:
+            cutoff = datetime.date.fromisoformat(str(on_or_before)[:10])
+            oldest = cutoff - datetime.timedelta(days=MAX_CLOSE_AGE_DAYS)
+            rows = self.supabase.table("price_history").select("day,close").eq(
+                "ticker", ticker).lte("day", cutoff.isoformat()).gte(
+                "day", oldest.isoformat()).order("day", desc=True).limit(1).execute().data or []
+            self._closes[key] = float(rows[0]["close"]) if rows else None
+        return self._closes[key]
+
 
 def get_cached_fundamentals(ticker, cache):
     """Fetch fundamentals for a ticker at most once per run, with the Finnhub
@@ -294,6 +387,11 @@ def evaluate_all_metrics():
     }
     deferred_tickers = set()
     attempted_tickers = set()  # counts against MAX_TICKERS_PER_RUN
+    prices = PriceReader(supabase)
+    # Past their deadline but missing data that will arrive (the deadline's
+    # close not ingested yet, or a Finnhub fetch failed/deferred tonight):
+    # these must not resolve on a partial set of targets — they wait a night.
+    not_ready = set()
 
     for metric in metrics:
         thesis = metric.get("theses") or {}
@@ -311,25 +409,44 @@ def evaluate_all_metrics():
 
         thesis_meta.setdefault(thesis_id, thesis)
 
-        # §5: an API failure on one ticker must not kill the whole run.
-        if ticker in failed_tickers or ticker in deferred_tickers:
-            continue
-        if ticker not in attempted_tickers and len(attempted_tickers) >= MAX_TICKERS_PER_RUN:
-            deferred_tickers.add(ticker)  # graded on a later run, never voided
-            continue
-        attempted_tickers.add(ticker)
-        try:
-            fundamentals = get_cached_fundamentals(ticker, fundamentals_cache)
-        except Exception as exc:  # noqa: BLE001 - continue past any Finnhub failure
-            logger.error("Failed to fetch fundamentals for %s: %s", ticker, exc)
-            failed_tickers.add(ticker)
-            continue
-
         metric_name = normalize_metric_name(metric.get("metric_name"))
         target_value = metric.get("target_value")
-        current_value = fundamentals.get(metric_name)
+        direction = metric.get("direction")
+        target_date = thesis.get("target_date")
+        past_deadline = is_past_deadline(target_date, today)
 
-        status = evaluate_metric(metric_name, current_value, target_value)
+        if metric_name == PRICE:
+            # Judged on the deadline's official close; until it's ingested, wait.
+            if past_deadline and not prices.covers(target_date):
+                not_ready.add(thesis_id)
+                continue
+            try:
+                current_value = prices.close(ticker, target_date[:10] if past_deadline else today.isoformat())
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Failed to read closes for %s: %s", ticker, exc)
+                stats["write_failures"] += 1  # counted so the run goes red
+                not_ready.add(thesis_id)
+                continue
+        else:
+            # §5: an API failure on one ticker must not kill the whole run.
+            if ticker in failed_tickers or ticker in deferred_tickers:
+                not_ready.add(thesis_id)
+                continue
+            if ticker not in attempted_tickers and len(attempted_tickers) >= MAX_TICKERS_PER_RUN:
+                deferred_tickers.add(ticker)  # graded on a later run, never voided
+                not_ready.add(thesis_id)
+                continue
+            attempted_tickers.add(ticker)
+            try:
+                fundamentals = get_cached_fundamentals(ticker, fundamentals_cache)
+            except Exception as exc:  # noqa: BLE001 - continue past any Finnhub failure
+                logger.error("Failed to fetch fundamentals for %s: %s", ticker, exc)
+                failed_tickers.add(ticker)
+                not_ready.add(thesis_id)
+                continue
+            current_value = fundamentals.get(metric_name)
+
+        status = evaluate_metric(metric_name, current_value, target_value, direction)
 
         # Write back the live value (None surfaces as "awaiting data" in the UI),
         # and stamp the baseline the first time a value arrives.
@@ -339,10 +456,10 @@ def evaluate_all_metrics():
             # A first value that only arrives on the deadline night is the same
             # number the call is graded on, so it says nothing about where the
             # metric stood when the target was set — leave already_met unknown.
-            if is_past_deadline(thesis.get("target_date"), today):
+            if past_deadline:
                 already_met = None
             else:
-                already_met = was_already_met(metric_name, current_value, target_value)
+                already_met = was_already_met(metric_name, current_value, target_value, direction)
             payload.update({
                 "baseline_value": current_value,
                 "baseline_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -372,7 +489,7 @@ def evaluate_all_metrics():
         new_status = derive_thesis_status(statuses)
         meta = thesis_meta.get(thesis_id, {})
 
-        if is_past_deadline(meta.get("target_date"), today):
+        if is_past_deadline(meta.get("target_date"), today) and thesis_id not in not_ready:
             locked = final_status(new_status)
             scores = locked != VOID and counts_toward_score(
                 graded_already_met.get(thesis_id, [])
@@ -423,6 +540,9 @@ def evaluate_all_metrics():
 
     stats["failed_tickers"] = sorted(failed_tickers)
     stats["tickers_deferred"] = len(deferred_tickers)
+    stats["theses_waiting"] = len(not_ready)
+    if not_ready:
+        logger.info("%d thesis(es) past deadline wait for data before resolving", len(not_ready))
     if deferred_tickers:
         logger.warning("Finnhub budget reached: %d ticker(s) deferred to the next run",
                        len(deferred_tickers))
